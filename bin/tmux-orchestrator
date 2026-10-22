@@ -1,0 +1,597 @@
+#!/usr/bin/env bash
+# Shared reporter for tmux-orchestrator.  Adapters call this; it writes tmux
+# options and never blocks an agent for longer than a tmux command.
+set -u
+
+SELF_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT_DIR=$(cd "$SELF_DIR/.." && pwd)
+
+TMUX_BIN=${TMUX_BIN:-tmux}
+TMUX=("$TMUX_BIN")
+if [[ -n ${TMUX_SOCKET:-} ]]; then
+	TMUX+=(-L "$TMUX_SOCKET")
+fi
+
+VALID_STATES=' working blocked done idle error unknown '
+
+tmux_do() {
+	"${TMUX[@]}" "$@" 2>/dev/null
+}
+
+tmux_ok() {
+	tmux_do "$@" >/dev/null 2>&1
+}
+
+get_global() {
+	tmux_do show-options -gv "$1" || true
+}
+
+get_session_opt() {
+	tmux_do show-options -v -t "$1" "$2" || true
+}
+
+get_pane_opt() {
+	tmux_do show-options -pv -t "$1" "$2" || true
+}
+
+set_pane_opt() {
+	tmux_ok set-option -p -t "$1" "$2" "$3"
+}
+
+unset_pane_opt() {
+	tmux_ok set-option -pu -t "$1" "$2"
+}
+
+set_session_opt() {
+	tmux_ok set-option -t "$1" "$2" "$3"
+}
+
+unset_session_opt() {
+	tmux_ok set-option -u -t "$1" "$2"
+}
+
+refresh_clients() {
+	tmux_ok refresh-client -S || true
+	return 0
+}
+
+state_rank() {
+	case "$1" in
+	blocked) printf 5 ;;
+	error) printf 4 ;;
+	done) printf 3 ;;
+	working) printf 2 ;;
+	idle) printf 1 ;;
+	*) printf 0 ;;
+	esac
+}
+
+state_icon() {
+	case "$1" in
+	working) printf '◐' ;;
+	blocked) printf '●' ;;
+	error) printf '×' ;;
+	done) printf '✓' ;;
+	idle) printf '○' ;;
+	*) printf '·' ;;
+	esac
+}
+
+state_colour() {
+	case "$1" in
+	working) printf 'yellow' ;;
+	blocked|error) printf 'red' ;;
+	done) printf 'colour37' ;;
+	idle) printf 'green' ;;
+	*) printf 'colour8' ;;
+	esac
+}
+
+sanitize_name() {
+	local value=$1
+	value=${value//$'\r'/ }
+	value=${value//$'\n'/ }
+	value=$(printf '%s' "$value" | tr -d '\000-\011\013\014\016-\037\177' 2>/dev/null || printf '%s' "$value")
+	# Keep one line and avoid leading/trailing whitespace creating empty rows.
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	printf '%s' "$value"
+}
+
+escape_hash() {
+	printf '%s' "${1//#/##}"
+}
+
+unescape_hash() {
+	printf '%s' "${1//##/#}"
+}
+
+fallback_name() {
+	local pane=$1 cwd=${2-} base
+	if [[ -z $cwd ]]; then
+		cwd=$(tmux_do display-message -p -t "$pane" '#{pane_current_path}' || true)
+	fi
+	if [[ -z $cwd ]]; then
+		cwd=${PWD:-}
+	fi
+	base=$(basename -- "$cwd" 2>/dev/null || true)
+	if [[ -z $base || $base == / ]]; then
+		base=$(tmux_do display-message -p -t "$pane" '#{pane_index}' || true)
+	fi
+	[[ -n $base ]] || base=agent
+	printf '%s' "$base"
+}
+
+pane_session() {
+	tmux_do display-message -p -t "$1" '#{session_id}' || true
+}
+
+recompute_session() {
+	local sid=$1 kind state count=0 rollup='' rank best=0
+	while IFS=' ' read -r kind state; do
+		[[ -n $kind ]] || continue
+		case "$state" in
+		working|blocked|done|idle|error|unknown) ;;
+		*) state=unknown ;;
+		esac
+		count=$((count + 1))
+		rank=$(state_rank "$state")
+		if ((rank > best)); then
+			best=$rank
+			rollup=$state
+		fi
+	done < <(tmux_do list-panes -s -t "$sid" -F '#{@agent_kind} #{@agent_state}' || true)
+	set_session_opt "$sid" @agent_count "$count"
+	if ((count == 0)); then
+		unset_session_opt "$sid" @agent_rollup
+	else
+		set_session_opt "$sid" @agent_rollup "$rollup"
+	fi
+}
+
+remove_pane_options() {
+	local pane=$1 sid
+	sid=$(pane_session "$pane")
+	unset_pane_opt "$pane" @agent_state
+	unset_pane_opt "$pane" @agent_name
+	unset_pane_opt "$pane" @agent_name_raw
+	unset_pane_opt "$pane" @agent_kind
+	unset_pane_opt "$pane" @agent_session
+	unset_pane_opt "$pane" @agent_notified_at
+	[[ -n $sid ]] && recompute_session "$sid"
+	refresh_clients
+}
+
+desktop_command() {
+	if command -v notify-send >/dev/null 2>&1; then
+		printf notify-send
+	elif command -v osascript >/dev/null 2>&1; then
+		printf osascript
+	fi
+}
+
+notify_desktop() {
+	local name=$1 state=$2 icon summary cmd escaped
+	icon=$(state_icon "$state")
+	summary="$icon Agent $state: $name"
+	cmd=$(desktop_command)
+	[[ -n $cmd ]] || return 0
+	case "$cmd" in
+	notify-send)
+		notify-send -a tmux-orchestrator "$summary" >/dev/null 2>&1 || true
+		;;
+	osascript)
+		escaped=${summary//\\/\\\\}
+		escaped=${escaped//\"/\\\"}
+		osascript -e "display notification \"$escaped\" with title \"tmux-orchestrator\"" >/dev/null 2>&1 || true
+		;;
+	esac
+}
+
+notify_agent() {
+	local pane=$1 state=$2 name=$3
+	local paused channel icon msg client cpane any_view=0 tmux_allowed=1
+	local last now sent=0
+
+	paused=$(get_global @tmux-orchestrator-notify-paused)
+	[[ $paused == 1 ]] && return 0
+
+	channel=$(get_global @tmux-orchestrator-notify)
+	[[ -n $channel ]] || channel=both
+	case "$channel" in
+	both|tmux|desktop|off) ;;
+	*) channel=both ;;
+	esac
+	[[ $channel == off ]] && return 0
+
+	icon=$(state_icon "$state")
+	msg="$icon $name $state"
+
+	# The desktop channel is suppressed if any client is already watching.
+	while IFS=' ' read -r client cpane; do
+		[[ -n $cpane ]] || continue
+		[[ $cpane == "$pane" ]] && any_view=1
+	done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
+
+	if [[ $channel == both || $channel == tmux ]]; then
+		if [[ $state == done ]]; then
+			last=$(get_pane_opt "$pane" @agent_notified_at)
+			now=$(date +%s)
+			if [[ -n $last && $last =~ ^[0-9]+$ ]] && ((now - last < 2)); then
+				tmux_allowed=0
+			fi
+		fi
+		if ((tmux_allowed)); then
+			while IFS=' ' read -r client cpane; do
+				[[ -n $client ]] || continue
+				[[ $cpane == "$pane" ]] && continue
+				tmux_ok display-message -l -c "$client" "$msg" && sent=1
+			done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
+			if ((sent)); then
+				set_pane_opt "$pane" @agent_notified_at "$(date +%s)"
+			fi
+		fi
+	fi
+
+	if [[ $channel == both || $channel == desktop ]]; then
+		if ((any_view == 0)) && [[ -n $(desktop_command) ]]; then
+			notify_desktop "$name" "$state"
+		fi
+	fi
+	return 0
+}
+
+spawn_name_refresh() {
+	local pane=$1 sid=$2 bin=$3 cmd
+	[[ -n $sid && -n $bin ]] || return 0
+	cmd=$(printf '%q ' "$SELF_DIR/tmux-orchestrator" refresh-name --pane "$pane" --session-id "$sid" --claude-bin "$bin")
+	[[ -n ${TMUX_SOCKET:-} ]] && cmd="TMUX_SOCKET=$(printf '%q' "$TMUX_SOCKET") $cmd"
+	tmux_ok run-shell -b "$cmd"
+}
+
+report_agent() {
+	local pane=$1 state=$2 name=$3 kind=$4 sid=$5 cwd=$6 refresh=$7
+	local prev raw escaped session old_raw
+
+	[[ -n $pane ]] || return 0
+	[[ -n $kind ]] || kind=''
+
+	prev=$(get_pane_opt "$pane" @agent_state)
+	if [[ -n $state ]]; then
+		case "$state" in
+		working|blocked|done|idle|error|unknown) ;;
+		*) state=unknown ;;
+		esac
+		# An error is sticky across a completion event without new activity.
+		if [[ $state == done && $prev == error ]]; then
+			state=error
+		fi
+		set_pane_opt "$pane" @agent_state "$state"
+	fi
+
+	raw=''
+	if [[ -n $name ]]; then
+		raw=$(sanitize_name "$name")
+	fi
+	if [[ -z $raw ]]; then
+		raw=$(get_pane_opt "$pane" @agent_name_raw)
+	fi
+	if [[ -z $raw ]]; then
+		raw=$(fallback_name "$pane" "$cwd")
+	fi
+
+	if [[ -n $raw ]]; then
+		old_raw=$(get_pane_opt "$pane" @agent_name_raw)
+		escaped=$(escape_hash "$raw")
+		if [[ $old_raw != "$raw" ]]; then
+			set_pane_opt "$pane" @agent_name "$escaped"
+			set_pane_opt "$pane" @agent_name_raw "$raw"
+		fi
+	fi
+	[[ -n $kind ]] && set_pane_opt "$pane" @agent_kind "$kind"
+	[[ -n $sid ]] && set_pane_opt "$pane" @agent_session "$sid"
+
+	session=$(pane_session "$pane")
+	[[ -n $session ]] && recompute_session "$session"
+	refresh_clients
+
+	if [[ -n $state && $prev != "$state" ]]; then
+		case "$state" in
+		blocked|error|done) notify_agent "$pane" "$state" "$raw" ;;
+		esac
+	fi
+
+	if [[ $refresh == 1 && -n $sid ]]; then
+		local claude_bin=${CLAUDE_BIN:-}
+		[[ -n $claude_bin ]] || claude_bin=$(command -v claude 2>/dev/null || true)
+		spawn_name_refresh "$pane" "$sid" "$claude_bin"
+	fi
+}
+
+report_json() {
+	local input event agent_id sid cwd title state='' name='' refresh=0
+	input=$(cat)
+	event=$(printf '%s' "$input" | jq -r '.hook_event_name // .event // empty' 2>/dev/null || true)
+	agent_id=$(printf '%s' "$input" | jq -r '.agent_id // empty' 2>/dev/null || true)
+	[[ -n $agent_id ]] && return 0
+
+	sid=$(printf '%s' "$input" | jq -r '.session_id // .sessionId // empty' 2>/dev/null || true)
+	cwd=$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null || true)
+	title=$(printf '%s' "$input" | jq -r '.session_title // empty' 2>/dev/null || true)
+
+	case "$event" in
+	SessionStart)
+		state=idle
+		name=$title
+		;;
+	UserPromptSubmit)
+		state=working
+		name=$title
+		;;
+	PreToolUse|PostToolUse)
+		state=working
+		;;
+	PermissionRequest)
+		state=blocked
+		;;
+	Stop)
+		state=done
+		;;
+	StopFailure)
+		state=error
+		;;
+	SessionEnd)
+		REPORT_PANE=${REPORT_PANE:-${TMUX_PANE:-}}
+		[[ -n $REPORT_PANE ]] && remove_pane_options "$REPORT_PANE"
+		return 0
+		;;
+	PostToolUseFailure|*)
+		return 0
+		;;
+	esac
+
+	# A supplied title is authoritative; only look one up when it is absent.
+	[[ -z $name ]] && refresh=1
+	report_agent "${REPORT_PANE:-${TMUX_PANE:-}}" "$state" "$name" claude "$sid" "$cwd" "$refresh"
+}
+
+refresh_name() {
+	local pane=$1 sid=$2 claude_bin=$3 out name
+	[[ -n $pane && -n $sid && -n $claude_bin ]] || return 0
+	if command -v timeout >/dev/null 2>&1; then
+		out=$(timeout 2 "$claude_bin" agents --json 2>/dev/null || true)
+	else
+		out=$("$claude_bin" agents --json 2>/dev/null || true)
+	fi
+	[[ -n $out ]] || return 0
+	name=$(printf '%s' "$out" | jq -r --arg id "$sid" '
+		if type == "array" then .[]
+		elif type == "object" then (.agents // .sessions // [])[]
+		else empty end
+		| select((.sessionId // .session_id // .id) == $id)
+		| (.name // .title // empty)
+	' 2>/dev/null | head -n 1)
+	[[ -n $name ]] || return 0
+	[[ $(get_pane_opt "$pane" @agent_session) == "$sid" ]] || return 0
+	name=$(sanitize_name "$name")
+	[[ -n $name ]] || return 0
+	set_pane_opt "$pane" @agent_name "$(escape_hash "$name")"
+	set_pane_opt "$pane" @agent_name_raw "$name"
+	refresh_clients
+}
+
+reconcile() {
+	local sid
+	while IFS= read -r sid; do
+		[[ -n $sid ]] && recompute_session "$sid"
+	done < <(tmux_do list-sessions -F '#{session_id}' || true)
+	refresh_clients
+}
+
+focus_agents() {
+	local client pane state sid
+	while IFS=' ' read -r client pane; do
+		[[ -n $pane ]] || continue
+		state=$(get_pane_opt "$pane" @agent_state)
+		if [[ $state == done ]]; then
+			set_pane_opt "$pane" @agent_state idle
+			sid=$(pane_session "$pane")
+			[[ -n $sid ]] && recompute_session "$sid"
+		fi
+	done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
+	refresh_clients
+}
+
+gc() {
+	local pane dead kind
+	while read -r pane dead kind; do
+		[[ -n $pane ]] || continue
+		if [[ $dead == 1 && -n $kind ]]; then
+			remove_pane_options "$pane"
+		fi
+	done < <(tmux_do list-panes -a -F '#{pane_id} #{pane_dead} #{@agent_kind}' || true)
+	reconcile
+}
+
+toggle_sidebar() {
+	local enabled side
+	enabled=$(get_global @tmux-orchestrator-enabled)
+	if [[ $enabled == 0 ]]; then
+		enabled=1
+		side=$(get_global @tmux-orchestrator-side)
+		[[ $side == left || $side == right ]] || side=left
+	else
+		enabled=0
+		side=off
+	fi
+	tmux_ok set-option -g @tmux-orchestrator-enabled "$enabled"
+	tmux_ok set-option -g side-status "$side"
+	refresh_clients
+}
+
+notify_status() {
+	local channel paused desktop
+	channel=$(get_global @tmux-orchestrator-notify)
+	[[ -n $channel ]] || channel=both
+	paused=$(get_global @tmux-orchestrator-notify-paused)
+	desktop=$(desktop_command)
+	if [[ $channel == off ]]; then
+		printf 'notifications: off\n'
+	elif [[ $paused == 1 ]]; then
+		printf 'notifications: paused (%s)\n' "$channel"
+	else
+		printf 'notifications: %s\n' "$channel"
+	fi
+	if [[ -n $desktop ]]; then
+		printf 'desktop: available (%s)\n' "$desktop"
+	else
+		printf 'desktop: unavailable\n'
+	fi
+}
+
+cleanup_all() {
+	local pane sid hook
+	while IFS= read -r pane; do
+		[[ -n $pane ]] || continue
+		unset_pane_opt "$pane" @agent_state
+		unset_pane_opt "$pane" @agent_name
+		unset_pane_opt "$pane" @agent_name_raw
+		unset_pane_opt "$pane" @agent_kind
+		unset_pane_opt "$pane" @agent_session
+		unset_pane_opt "$pane" @agent_notified_at
+	done < <(tmux_do list-panes -a -F '#{pane_id}' || true)
+	while IFS= read -r sid; do
+		[[ -n $sid ]] || continue
+		unset_session_opt "$sid" @agent_count
+		unset_session_opt "$sid" @agent_rollup
+	done < <(tmux_do list-sessions -F '#{session_id}' || true)
+	for hook in 'after-select-pane[90]' 'after-select-window[90]' \
+		'client-session-changed[90]' 'session-closed[90]'; do
+		tmux_ok set-hook -gu "$hook"
+	done
+	tmux_ok set-hook -gwu 'pane-exited[90]'
+	tmux_ok set-hook -gwu 'pane-died[90]'
+	tmux_ok set-option -g side-status off
+	refresh_clients
+}
+
+install_opencode() {
+	local home=${HOME} uninstall=0 src dest tmp json
+	while (($#)); do
+		case "$1" in
+		--home) home=$2; shift 2 ;;
+		--uninstall) uninstall=1; shift ;;
+		*) shift ;;
+		esac
+	done
+	dest="$home/.config/opencode/plugins/tmux-orchestrator.js"
+	if ((uninstall)); then
+		rm -f -- "$dest"
+		printf 'removed %s\n' "$dest"
+		return 0
+	fi
+	src="$ROOT_DIR/plugins/opencode/tmux-orchestrator.js"
+	if [[ ! -f $src ]]; then
+		printf 'missing %s\n' "$src" >&2
+		return 1
+	fi
+	mkdir -p -- "$(dirname "$dest")"
+	json=$(printf '%s' "$SELF_DIR/tmux-orchestrator" | sed 's/\\/\\\\/g; s/[&|]/\\&/g; s/"/\\"/g')
+	tmp="$dest.tmp.$$"
+	sed "s|__REPORTER__|$json|g" "$src" >"$tmp" && mv -- "$tmp" "$dest"
+	printf 'installed %s\n' "$dest"
+}
+
+usage() {
+	cat <<'EOF'
+usage: tmux-orchestrator <command>
+
+  report --pane ID --state STATE [--name NAME] [--kind KIND] [--session-id ID]
+  report --source claude --json       (read a Claude Code hook payload)
+  remove --pane ID
+  refresh-name --pane ID --session-id ID [--claude-bin PATH]
+  focus | reconcile | gc | toggle
+  notify pause | resume | status
+  cleanup
+  install [--home DIR] | uninstall [--home DIR]
+EOF
+}
+
+main() {
+	local command=${1-}
+	shift || true
+	case "$command" in
+	report)
+		local pane='' state='' name='' kind='' sid='' cwd='' refresh=0 json=0 source=''
+		while (($#)); do
+			case "$1" in
+			--pane) pane=$2; shift 2 ;;
+			--state) state=$2; shift 2 ;;
+			--name) name=$2; shift 2 ;;
+			--kind) kind=$2; shift 2 ;;
+			--session-id) sid=$2; shift 2 ;;
+			--cwd) cwd=$2; shift 2 ;;
+			--refresh) refresh=1; shift ;;
+			--source) source=$2; shift 2 ;;
+			--json) json=1; shift ;;
+			*) shift ;;
+			esac
+		done
+		pane=${pane:-${TMUX_PANE:-}}
+		if ((json)) || [[ $source == claude ]]; then
+			REPORT_PANE=$pane report_json
+		else
+			[[ -n $pane ]] || exit 0
+			report_agent "$pane" "$state" "$name" "$kind" "$sid" "$cwd" "$refresh"
+		fi
+		;;
+	remove)
+		local pane=''
+		while (($#)); do
+			case "$1" in
+			--pane) pane=$2; shift 2 ;;
+			*) shift ;;
+			esac
+		done
+		pane=${pane:-${TMUX_PANE:-}}
+		[[ -n $pane ]] && remove_pane_options "$pane"
+		;;
+	refresh-name)
+		local pane='' sid='' bin=''
+		while (($#)); do
+			case "$1" in
+			--pane) pane=$2; shift 2 ;;
+			--session-id) sid=$2; shift 2 ;;
+			--claude-bin) bin=$2; shift 2 ;;
+			*) shift ;;
+			esac
+		done
+		refresh_name "$pane" "$sid" "$bin"
+		;;
+	focus) focus_agents ;;
+	reconcile) reconcile ;;
+	gc) gc ;;
+	toggle) toggle_sidebar ;;
+	notify)
+		case "${1-}" in
+		pause)
+			tmux_ok set-option -g @tmux-orchestrator-notify-paused 1
+			printf 'notifications paused\n'
+			;;
+		resume)
+			tmux_ok set-option -gu @tmux-orchestrator-notify-paused
+			printf 'notifications resumed\n'
+			;;
+		status|'') notify_status ;;
+		*) printf 'usage: tmux-orchestrator notify pause|resume|status\n' >&2; return 2 ;;
+		esac
+		;;
+	cleanup) cleanup_all ;;
+	install) install_opencode "$@" ;;
+	uninstall) install_opencode --uninstall "$@" ;;
+	help|-h|--help|'') usage ;;
+	*) printf 'unknown command: %s\n' "$command" >&2; usage >&2; return 2 ;;
+	esac
+}
+
+main "$@"

@@ -1,0 +1,14 @@
+{
+  "name": "tmux-orchestrator",
+  "description": "A tmux-native sidebar for Claude Code and OpenCode agents.",
+  "owner": {
+    "name": "Giuseppe Rota"
+  },
+  "plugins": [
+    {
+      "name": "tmux-orchestrator",
+      "source": "./plugins/claude",
+      "description": "Report Claude Code lifecycle events to the tmux-orchestrator sidebar."
+    }
+  ]
+}

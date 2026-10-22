@@ -1,0 +1,8 @@
+{
+  "name": "tmux-orchestrator",
+  "version": "0.1.0",
+  "description": "Track Claude Code and OpenCode agents in a tmux side-status sidebar.",
+  "author": {
+    "name": "Giuseppe Rota"
+  }
+}
