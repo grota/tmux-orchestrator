@@ -5,7 +5,7 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
 HOOK=${HOOK:-$ROOT/plugins/claude/hooks/report.sh}
-export TMUX_ORCHESTRATOR_REPORTER="$BIN"
+unset TMUX_ORCHESTRATOR_REPORTER
 FIX="$ROOT/tests/fixtures/claude"
 S="tmux-orchestrator-claude-$$"
 export TMUX_SOCKET=$S
@@ -19,9 +19,16 @@ state() { tmux -L "$S" show-options -pv -t "$P" @agent_1_state 2>/dev/null || tr
 raw() { tmux -L "$S" show-options -pv -t "$P" @agent_1_name_raw 2>/dev/null || true; }
 count() { tmux -L "$S" show-options -v -t alpha @agent_count 2>/dev/null || true; }
 
-tmux -L "$S" new-session -d -s alpha -n main -x 100 -y 40 'sleep 300'
+tmux -L "$S" -f /dev/null new-session -d -s alpha -n main -x 100 -y 40 'sleep 300'
 P=$(tmux -L "$S" display -p -t alpha:main.0 '#{pane_id}')
 export TMUX_PANE=$P
+
+# With no published reporter and none on PATH, the hook exits quietly.
+PATH=/usr/bin:/bin "$HOOK" <"$FIX/session-start-title.json" || fail 'hook failed without a reporter'
+assert_eq "$(state)" ''
+
+# The hook finds the reporter through the option the tmux plugin publishes.
+tmux -L "$S" set-option -g @tmux-orchestrator-reporter "$BIN"
 
 "$HOOK" <"$FIX/session-start-title.json"
 assert_eq "$(state)" idle

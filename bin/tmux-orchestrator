@@ -15,6 +15,10 @@ if [[ -n ${TMUX_SOCKET:-} ]]; then
 	TMUX+=(-L "$TMUX_SOCKET")
 fi
 
+# The report protocol adapters speak.  It changes only when the commands
+# adapters call change incompatibly.
+PROTOCOL=1
+
 # Agents past this slot are shown as one overflow row (ADR-0004).
 VISIBLE_SLOTS=9
 SLOT_FIELDS='sid kind state name name_raw event notified_at'
@@ -529,7 +533,8 @@ apply_tabs() {
 	shift 3
 	local -a tab_sid=() tab_status=() tab_title=()
 	local -a new_sid=() new_kind=() new_state=() new_raw=() new_event=() new_notified=()
-	local count=0 i j old_active_sid='' new_active='' verb next notify raw
+	local count=0 i j old_active_sid='' new_active='' verb next notify raw slot
+	local -a pending_notify=()
 
 	while (($# >= 3)); do
 		tab_sid+=("$1")
@@ -548,10 +553,18 @@ apply_tabs() {
 		if [[ -n $i ]]; then
 			new_sid+=("${SID[i]}")
 			new_kind+=(opencode)
-			new_state+=("${STATE[i]-}")
 			[[ -n $raw ]] || raw=${RAW[i]-}
-			new_event+=("${EVENT[i]-}")
 			new_notified+=("${NOTIFIED[i]-}")
+			# A known tab whose wait only became visible now.
+			if [[ ${tab_status[j]} == pending && ${STATE[i]-} != blocked ]]; then
+				read -r verb next notify <<<"$(agent_transition "${STATE[i]-}" opencode tab.pending)"
+				new_state+=("$next")
+				new_event+=("$(event_label opencode tab.pending)")
+				[[ $notify == 1 ]] && pending_notify+=("$((j + 1))")
+			else
+				new_state+=("${STATE[i]-}")
+				new_event+=("${EVENT[i]-}")
+			fi
 		else
 			read -r verb next notify <<<"$(agent_transition '' opencode tab.opened "${tab_status[j]}")"
 			new_sid+=("${tab_sid[j]}")
@@ -593,6 +606,9 @@ apply_tabs() {
 
 	store_pane "$pane"
 	after_pane_change "$pane"
+	for slot in ${pending_notify[@]+"${pending_notify[@]}"}; do
+		notify_agent "$pane" "$slot" "${STATE[slot]}"
+	done
 }
 
 refresh_name() {
@@ -787,42 +803,89 @@ cleanup_all() {
 	refresh_clients
 }
 
+# The OpenCode adapter is a link to this copy's plugins/opencode, so updating or
+# switching the tmux plugin updates it too (ADR-0007).  Only paths this
+# project created are replaced: a link into a plugins/opencode directory, or
+# the directory holding a copied tui.js that earlier versions installed.
+OPENCODE_PLUGIN_ID=tmux-orchestrator.opencode
+
+opencode_path_is_ours() {
+	local dest=$1 target
+	if [[ -L $dest ]]; then
+		target=$(readlink -- "$dest")
+		[[ $target == */plugins/opencode ]]
+	elif [[ -d $dest ]]; then
+		[[ -f $dest/tui.js ]] && grep -q "$OPENCODE_PLUGIN_ID" "$dest/tui.js" 2>/dev/null &&
+			[[ $(find "$dest" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ') == 1 ]]
+	else
+		return 1
+	fi
+}
+
 install_opencode() {
-	local home=${HOME} uninstall=0 src dest legacy tmp json
+	local home=${HOME} uninstall=0 quiet=0 src dest legacy
 	while (($#)); do
 		case "$1" in
 		--home) home=$2; shift 2 ;;
 		--uninstall) uninstall=1; shift ;;
+		--quiet) quiet=1; shift ;;
 		*) shift ;;
 		esac
 	done
-	# OpenCode discovers <config>/plugins/<name>/tui.js as a TUI plugin; the
-	# legacy server plugin file of earlier versions is always removed.
-	dest="$home/.config/opencode/plugins/tmux-orchestrator/tui.js"
+	dest="$home/.config/opencode/plugins/tmux-orchestrator"
 	legacy="$home/.config/opencode/plugins/tmux-orchestrator.js"
+	src="$ROOT_DIR/plugins/opencode"
 	rm -f -- "$legacy"
-	if ((uninstall)); then
-		rm -f -- "$dest"
-		rmdir -- "$(dirname "$dest")" 2>/dev/null || true
-		printf 'removed %s\n' "$dest"
+
+	if [[ -e $dest || -L $dest ]] && ! opencode_path_is_ours "$dest"; then
+		printf 'left untouched: %s was not created by tmux-orchestrator\n' "$dest" >&2
 		return 0
 	fi
-	src="$ROOT_DIR/plugins/opencode/tui.js"
-	if [[ ! -f $src ]]; then
-		printf 'missing %s\n' "$src" >&2
+	if ((uninstall)); then
+		if [[ -L $dest ]]; then
+			rm -f -- "$dest"
+		elif [[ -d $dest ]]; then
+			rm -f -- "$dest/tui.js" && rmdir -- "$dest"
+		fi
+		((quiet)) || printf 'removed %s\n' "$dest"
+		return 0
+	fi
+	if [[ ! -f $src/tui.js ]]; then
+		printf 'missing %s\n' "$src/tui.js" >&2
 		return 1
 	fi
+	# Already linked here: nothing to do.
+	[[ -L $dest && $(readlink -- "$dest") == "$src" ]] && return 0
+	if [[ -L $dest ]]; then
+		rm -f -- "$dest"
+	elif [[ -d $dest ]]; then
+		rm -f -- "$dest/tui.js" && rmdir -- "$dest"
+	fi
 	mkdir -p -- "$(dirname "$dest")"
-	json=$(printf '%s' "$SELF_DIR/tmux-orchestrator" | sed 's/\\/\\\\/g; s/[&|]/\\&/g; s/"/\\"/g')
-	tmp="$dest.tmp.$$"
-	sed "s|__REPORTER__|$json|g" "$src" >"$tmp" && mv -- "$tmp" "$dest"
-	printf 'installed %s\n' "$dest"
+	ln -s -- "$src" "$dest"
+	((quiet)) || printf 'linked %s -> %s\n' "$dest" "$src"
+}
+
+# A call from an adapter speaking another protocol is ignored, and attached
+# clients are told once per tmux server to update the tmux plugin.
+protocol_ok() {
+	local version=${1-} client
+	[[ -z $version || $version == "$PROTOCOL" ]] && return 0
+	if [[ $(get_global @tmux-orchestrator-protocol-warned) != "$version" ]]; then
+		tmux_ok set-option -g @tmux-orchestrator-protocol-warned "$version"
+		while IFS= read -r client; do
+			[[ -n $client ]] && tmux_ok display-message -c "$client" \
+				"tmux-orchestrator: update the tmux plugin (adapter protocol $version)"
+		done < <(tmux_do list-clients -F '#{client_name}' || true)
+	fi
+	return 1
 }
 
 usage() {
 	cat <<'EOF'
 usage: tmux-orchestrator <command>
 
+  (adapter commands accept --protocol N; this reporter speaks protocol 1)
   report --pane ID --kind KIND --event EVENT [--detail D] [--session-id ID]
          [--name NAME] [--cwd DIR] [--refresh] [--transcript PATH]
   tabs --pane ID [--active ID] [--cwd DIR] [--tab ID STATUS TITLE]...
@@ -832,13 +895,28 @@ usage: tmux-orchestrator <command>
   focus | select ROW | reconcile | gc | toggle
   notify pause | resume | status
   cleanup
-  install [--home DIR] | uninstall [--home DIR]
+  install [opencode] [--home DIR] [--quiet]
+  uninstall [opencode] [--home DIR]
 EOF
 }
 
 main() {
-	local command=${1-}
+	local command=${1-} protocol='' args=()
 	shift || true
+	# Every adapter call carries --protocol; strip it before the command parses.
+	while (($#)); do
+		if [[ $1 == --protocol ]]; then
+			protocol=${2-}
+			shift 2 || shift
+		else
+			args+=("$1")
+			shift
+		fi
+	done
+	set -- ${args[@]+"${args[@]}"}
+	case "$command" in
+	report | tabs | remove | register) protocol_ok "$protocol" || return 0 ;;
+	esac
 	case "$command" in
 	report)
 		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 transcript=''

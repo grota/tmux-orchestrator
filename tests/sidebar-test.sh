@@ -27,6 +27,7 @@ tmux -L "$S" new-session -d -s beta -n other -x 120 -y 40 'sleep 300'
 tmux -L "$S" new-session -d -s gamma -n empty -x 120 -y 40 'sleep 300'
 "$ROOT/tmux-orchestrator.tmux"
 "$ROOT/tmux-orchestrator.tmux"
+[[ $(tmux -L "$S" show-options -gv @tmux-orchestrator-reporter) == "$ROOT/bin/tmux-orchestrator" ]] || fail 'reporter path not published'
 HOOK_COUNT=$(tmux -L "$S" show-hooks -g | grep -c 'after-select-pane\[90\]' || true)
 [[ $HOOK_COUNT == 1 ]] || fail "duplicate select-pane hook: $HOOK_COUNT"
 tmux -L "$S" show-hooks -gw | grep -Fq 'pane-exited[90]' || fail 'missing pane-exited hook'

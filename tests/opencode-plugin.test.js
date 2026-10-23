@@ -78,15 +78,15 @@ test("the TUI plugin reports tabs, events in order, focus and exit", async () =>
   await sleep(400);
 
   let out = await lines();
-  assert.equal(out[0], "tabs --pane %7 --active ses_a --tab ses_a idle api --tab ses_b idle docs");
+  assert.equal(out[0], "tabs --protocol 1 --pane %7 --active ses_a --tab ses_a idle api --tab ses_b idle docs");
   const register = out.find((line) => line.startsWith("register"));
-  assert.match(register, /^register --pane %7 --socket .*\/7\.sock$/);
+  assert.match(register, /^register --protocol 1 --pane %7 --socket .*\/7\.sock$/);
   const events = out.filter((line) => line.startsWith("report"));
   assert.deepEqual(events, [
-    "report --pane %7 --kind opencode --event session.execution.started --session-id ses_b",
-    "report --pane %7 --kind opencode --event permission.asked --session-id ses_b",
+    "report --protocol 1 --pane %7 --kind opencode --event session.execution.started --session-id ses_b",
+    "report --protocol 1 --pane %7 --kind opencode --event permission.asked --session-id ses_b",
   ]);
-  assert.equal(out.at(-1), "tabs --pane %7 --active ses_a --tab ses_a idle api");
+  assert.equal(out.at(-1), "tabs --protocol 1 --pane %7 --active ses_a --tab ses_a idle api");
 
   // The reporter's focus request reaches ui.tabs.focus through the socket.
   const socket = register.split(" --socket ")[1];
@@ -101,7 +101,7 @@ test("the TUI plugin reports tabs, events in order, focus and exit", async () =>
   dispose();
   await sleep(300);
   out = await lines();
-  assert.equal(out.at(-1), "remove --pane %7");
+  assert.equal(out.at(-1), "remove --protocol 1 --pane %7");
   assert.equal(existsSync(socket), false);
 });
 
@@ -114,4 +114,17 @@ test("outside tmux the plugin does nothing", async () => {
   assert.equal(tui.state.listener, undefined);
   dispose();
   process.env.TMUX_PANE = saved;
+});
+
+test("the reporter is found through the tmux option, then PATH", async () => {
+  const { findReporter } = await import("../plugins/opencode/tui.js");
+  const dir = await mkdtemp(join(tmpdir(), "tmux-orchestrator-find-"));
+  const fakeTmux = join(dir, "tmux");
+  await writeFile(fakeTmux, `#!/bin/sh\ncase "$*" in *"show-options -gv @tmux-orchestrator-reporter"*) echo /opt/checkout/bin/tmux-orchestrator ;; esac\n`);
+  await chmod(fakeTmux, 0o755);
+  assert.equal(findReporter({ PATH: dir }), "/opt/checkout/bin/tmux-orchestrator");
+  assert.equal(findReporter({ PATH: dir, TMUX_ORCHESTRATOR_REPORTER: "/override" }), "/override");
+  await writeFile(fakeTmux, "#!/bin/sh\nexit 1\n");
+  assert.equal(findReporter({ PATH: dir }), "tmux-orchestrator");
+  assert.equal(findReporter({ PATH: join(dir, "missing") }), "tmux-orchestrator");
 });

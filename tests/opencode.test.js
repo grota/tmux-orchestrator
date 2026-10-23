@@ -4,7 +4,7 @@ import test from "node:test";
 import { createQueue, eventArgs, snapshot, tabsArgs } from "../plugins/opencode/tui.js";
 
 // A fake OpenCode 2.x TUI API: tabs, sessions with roots, pending requests.
-function fakeApi({ tabs = [], roots = {}, running = [], permissions = {}, forms = {}, titles = {}, enabled = true, route } = {}) {
+function fakeApi({ tabs = [], roots = {}, families = {}, running = [], permissions = {}, forms = {}, titles = {}, enabled = true, route } = {}) {
   return {
     ui: {
       tabs: { enabled: () => enabled, list: () => tabs, focus: () => true },
@@ -13,6 +13,7 @@ function fakeApi({ tabs = [], roots = {}, running = [], permissions = {}, forms 
     data: {
       session: {
         root: (id) => roots[id] ?? id,
+        family: (id) => families[id] ?? [id],
         get: (id) => (titles[id] ? { id, title: titles[id] } : undefined),
         status: (id) => (running.includes(id) ? "running" : "idle"),
         permission: { list: (id) => permissions[id] ?? [] },
@@ -24,15 +25,13 @@ function fakeApi({ tabs = [], roots = {}, running = [], permissions = {}, forms 
 
 const ev = (type, data) => ({ id: "e", type, created: 0, data });
 
-test("snapshot lists tabs in order with status, title and the active tab", () => {
+test("snapshot lists tabs in order with OpenCode's own status, title and the active tab", () => {
   const api = fakeApi({
     tabs: [
       { sessionID: "ses_a", title: "api", active: false, busy: true, attention: false },
       { sessionID: "ses_b", title: "docs", active: true, busy: false, attention: false },
-      { sessionID: "ses_c", active: false, busy: false, attention: true },
+      { sessionID: "ses_c", active: false, busy: true, attention: "permission" },
     ],
-    running: ["ses_a"],
-    forms: { ses_c: [{ id: "f" }] },
     titles: { ses_c: "web" },
   });
   assert.deepEqual(snapshot(api), {
@@ -45,14 +44,22 @@ test("snapshot lists tabs in order with status, title and the active tab", () =>
   });
 });
 
-test("with tabs disabled the shown session is the only agent", () => {
+test("with tabs disabled the shown session and its children make the only agent", () => {
   const api = fakeApi({
     enabled: false,
     route: { type: "session", sessionID: "ses_child" },
     roots: { ses_child: "ses_root" },
-    permissions: { ses_root: [{ id: "p" }] },
+    families: { ses_root: ["ses_root", "ses_child"] },
+    forms: { ses_child: [{ id: "f" }] },
   });
   assert.deepEqual(snapshot(api), { tabs: [{ sid: "ses_root", status: "pending", title: "" }], active: "ses_root" });
+  const busy = fakeApi({
+    enabled: false,
+    route: { type: "session", sessionID: "ses_root" },
+    families: { ses_root: ["ses_root", "ses_child"] },
+    running: ["ses_child"],
+  });
+  assert.equal(snapshot(busy).tabs[0].status, "running");
   assert.deepEqual(snapshot(fakeApi({ enabled: false })), { tabs: [], active: "" });
 });
 

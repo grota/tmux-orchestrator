@@ -56,6 +56,8 @@ check 'set working 0' '' opencode tab.opened running
 check 'set blocked 1' '' opencode tab.opened pending
 check 'set idle 0' '' opencode tab.opened idle
 check 'forget' working opencode tab.closed
+check 'set blocked 1' working opencode tab.pending
+check 'set blocked 1' idle opencode tab.pending
 check 'set idle 0' done opencode tab.focused
 check 'set working 0' working opencode tab.focused
 

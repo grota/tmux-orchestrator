@@ -220,6 +220,13 @@ assert_contains "$CLIENT_LOG" '● back blocked'
 "$BIN" report --pane "$PT" --kind opencode --event permission.asked --session-id ses_a
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 
+# A wait that loads late on a background tab notifies once.
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a idle front --tab ses_c running late
+: >"$NOTIFY_LOG"
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a idle front --tab ses_c pending late
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a idle front --tab ses_c pending late
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+
 kill "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=
 printf 'notification tests passed\n'

@@ -1,16 +1,15 @@
 // tmux-orchestrator OpenCode 2.x adapter.  It runs in the TUI, in the agent
 // pane's own process, because only the TUI knows its pane and its tabs
 // (ADR-0003).  It forwards agent events and tab snapshots to the shared
-// reporter and never interprets them (ADR-0005).
-//
-// The installer replaces __REPORTER__ with the absolute path to the reporter.
-import { spawn } from "node:child_process";
+// reporter and never interprets them (ADR-0005).  It finds the reporter
+// through the tmux server it runs in (ADR-0007).
+import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, unlinkSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const REPORTER = "__REPORTER__";
+const PROTOCOL = "1";
 const POLL_MS = 250;
 const REPORTER_TIMEOUT_MS = 2000;
 
@@ -42,20 +41,26 @@ function sessionOf(event) {
   return data.sessionID ?? data.form?.sessionID;
 }
 
-// The open tabs with their status, in tab order, plus the active one.  With
-// tabs disabled, the session the TUI shows is the only agent.
+// The open tabs with their status, in tab order, plus the active one.  A tab's
+// status is what OpenCode's tab bar shows: a wait anywhere in the session's
+// family, then activity.  Waits of a restored session load after its tab
+// appears, so a later snapshot can turn a tab pending.  With tabs disabled, the
+// session the TUI shows is the only agent.
 export function snapshot(api) {
   const statusOf = (sid) => {
-    const pending =
-      (api.data.session.permission.list(sid)?.length ?? 0) > 0 ||
-      (api.data.session.form.list(sid)?.length ?? 0) > 0;
+    const members = api.data.session.family?.(sid) ?? [sid];
+    const pending = members.some(
+      (id) =>
+        (api.data.session.permission.list(id)?.length ?? 0) > 0 ||
+        (api.data.session.form.list(id)?.length ?? 0) > 0,
+    );
     if (pending) return "pending";
-    return api.data.session.status(sid) === "running" ? "running" : "idle";
+    return members.some((id) => api.data.session.status(id) === "running") ? "running" : "idle";
   };
   if (api.ui.tabs.enabled()) {
     const tabs = api.ui.tabs.list().map((tab) => ({
       sid: tab.sessionID,
-      status: statusOf(tab.sessionID),
+      status: tab.attention ? "pending" : tab.busy ? "running" : "idle",
       title: tab.title ?? api.data.session.get(tab.sessionID)?.title ?? "",
     }));
     const active = api.ui.tabs.list().find((tab) => tab.active)?.sessionID ?? "";
@@ -104,15 +109,40 @@ export function createQueue(run) {
   };
 }
 
+// An explicit override, the path the tmux plugin publishes, then PATH.
+export function findReporter(env = process.env) {
+  if (env.TMUX_ORCHESTRATOR_REPORTER) return env.TMUX_ORCHESTRATOR_REPORTER;
+  const socket = env.TMUX_SOCKET ? ["-L", env.TMUX_SOCKET] : [];
+  try {
+    const result = spawnSync("tmux", [...socket, "show-options", "-gv", "@tmux-orchestrator-reporter"], {
+      encoding: "utf8",
+      timeout: 1000,
+      env,
+    });
+    const path = result.stdout?.trim();
+    if (result.status === 0 && path) return path;
+  } catch {
+    // No tmux: fall through to PATH.
+  }
+  return "tmux-orchestrator";
+}
+
+let reporter;
 function reporterPath() {
-  return process.env.TMUX_ORCHESTRATOR_REPORTER || REPORTER;
+  reporter ??= findReporter();
+  return reporter;
+}
+
+// Every call names the protocol, so an older reporter can say it needs updating.
+function withProtocol(args) {
+  return [args[0], "--protocol", PROTOCOL, ...args.slice(1)];
 }
 
 function runReporter(args) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(reporterPath(), args, { stdio: "ignore", env: process.env });
+      child = spawn(reporterPath(), withProtocol(args), { stdio: "ignore", env: process.env });
     } catch {
       resolve();
       return;
@@ -130,7 +160,7 @@ function runReporter(args) {
 // Fire and forget: used on exit, when the TUI may not wait for the child.
 function runDetached(args) {
   try {
-    const child = spawn(reporterPath(), args, { detached: true, stdio: "ignore", env: process.env });
+    const child = spawn(reporterPath(), withProtocol(args), { detached: true, stdio: "ignore", env: process.env });
     child.on("error", () => {});
     child.unref();
   } catch {
@@ -186,6 +216,7 @@ function listenForFocus(pane, api, onReady) {
 }
 
 export function start(api, pane, run = runReporter) {
+  reporter = findReporter();
   const enqueue = createQueue(run);
   let open = new Set();
   let lastKey = "";

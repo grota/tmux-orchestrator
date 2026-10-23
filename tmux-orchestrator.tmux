@@ -28,6 +28,7 @@ enabled=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-enabled 2>/dev/null |
 side=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-side 2>/dev/null || true)
 width=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-width 2>/dev/null || true)
 toggle_key=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-toggle-key 2>/dev/null || true)
+opencode=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-opencode 2>/dev/null || true)
 
 [[ -n $enabled ]] || enabled=1
 [[ $side == left || $side == right ]] || side=left
@@ -35,6 +36,12 @@ toggle_key=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-toggle-key 2>/dev/
 ((width >= 10)) || width=28
 [[ -n $toggle_key ]] || toggle_key=O
 
+# Adapters find the reporter of the copy loaded here through this option (ADR-0007).
+"${TMUX[@]}" set-option -g @tmux-orchestrator-reporter "$REPORTER"
+# Opt-in: keep the OpenCode adapter linked to this copy.
+if [[ $opencode == on ]]; then
+	"$REPORTER" install opencode --quiet >/dev/null 2>&1 || true
+fi
 "${TMUX[@]}" set-option -g @tmux-orchestrator-enabled "$enabled"
 "${TMUX[@]}" set-option -g @tmux-orchestrator-side "$side"
 "${TMUX[@]}" set-option -g @tmux-orchestrator-width "$width"

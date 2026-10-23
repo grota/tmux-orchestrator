@@ -189,6 +189,17 @@ assert_eq "$(opt "$P0" @agent_1_state)" working
 rm -rf "$TR_DIR"
 unset TMUX_ORCHESTRATOR_WATCH_TICK
 
+# Adapters speaking another protocol are ignored, with one update message.
+"$BIN" report --protocol 1 --pane "$P0" --kind claude --event UserPromptSubmit --session-id s0
+assert_eq "$(opt "$P0" @agent_1_state)" working
+"$BIN" report --protocol 2 --pane "$P0" --kind claude --event PermissionRequest --session-id s0
+assert_eq "$(opt "$P0" @agent_1_state)" working
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-protocol-warned)" 2
+"$BIN" tabs --protocol 2 --pane "$P0" --active x --tab x idle x
+assert_eq "$(opt "$P0" @agent_1_kind)" claude
+"$BIN" report --pane "$P0" --kind claude --event PermissionRequest --session-id s0
+assert_eq "$(opt "$P0" @agent_1_state)" blocked
+
 # The last agent event is recorded with its detail.
 "$BIN" report --pane "$P0" --kind claude --event StopFailure --detail rate_limit --session-id s0
 assert_eq "$(opt "$P0" @agent_1_event)" claude:StopFailure:rate_limit
@@ -227,6 +238,18 @@ assert_eq "$(opt "$PT" @agent_active)" 2
 "$BIN" tabs --pane "$PT" --active ses_a --tab ses_a running api --tab ses_c pending 'web app'
 assert_eq "$(opt "$PT" @agent_1_state)" idle
 assert_eq "$(opt "$PT" @agent_1_event)" opencode:tab.focused
+
+# A wait that loads after its tab appeared turns the known tab blocked once.
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a running api --tab ses_c pending 'web app'
+"$BIN" report --pane "$PT" --kind opencode --event session.execution.started --session-id ses_a
+assert_eq "$(opt "$PT" @agent_1_state)" working
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a pending api --tab ses_c pending 'web app'
+assert_eq "$(opt "$PT" @agent_1_state)" blocked
+assert_eq "$(opt "$PT" @agent_1_event)" opencode:tab.pending
+"$BIN" report --pane "$PT" --kind opencode --event permission.replied --session-id ses_a
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a running api --tab ses_c pending 'web app'
+assert_eq "$(opt "$PT" @agent_1_state)" working
+"$BIN" report --pane "$PT" --kind opencode --event session.execution.interrupted --session-id ses_a
 
 # A renamed tab keeps its state.
 "$BIN" report --pane "$PT" --kind opencode --event session.renamed --session-id ses_a --name 'api v2'

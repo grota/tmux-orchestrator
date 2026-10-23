@@ -69,6 +69,8 @@ agent_event_meaning() {
 		*) printf set:idle ;;
 		esac
 		;;
+	# A wait that loaded after its tab appeared, as when OpenCode restores a tab.
+	opencode:tab.pending) printf wait ;;
 	opencode:tab.closed) printf end ;;
 	opencode:tab.focused) printf viewed ;;
 

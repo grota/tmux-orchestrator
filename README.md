@@ -23,75 +23,62 @@ tmux builds. Nothing else in the tmux configuration is prevented from loading.
 
 ## Install
 
-The `/home/you/tmux-orchestrator` paths below are placeholders for the checkout.
-Replace them with its absolute path; from the checkout root,
-`./bin/tmux-orchestrator` is equivalent for the shell examples.
-
 All installation is user-level. No existing hook JSON or agent configuration
 file is rewritten.
 
 ### tmux
 
-Run the entry point from your tmux configuration:
+Install with [TPM](https://github.com/tmux-plugins/tpm). Add the plugin to your
+tmux configuration, then press `prefix + I`:
 
 ```tmux
-run-shell '/home/you/tmux-orchestrator/tmux-orchestrator.tmux'
+set -g @plugin 'grota/tmux-orchestrator'
 ```
 
-Then reload tmux:
+`prefix + U` updates it. The tmux plugin holds the only copy of the reporter and
+publishes its path in the global option `@tmux-orchestrator-reporter`. The
+Claude Code and OpenCode adapters find the reporter there.
+
+The shell examples in this README call the reporter `tmux-orchestrator`. To run
+them as written, define an alias:
 
 ```sh
-tmux source-file ~/.tmux.conf
+alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
 ```
-
-The repository has no published remote yet, so TPM's `set -g @plugin` form does
-not work until it does. Reloading is safe: the entry point replaces its own
-hooks and bindings instead of adding duplicates.
 
 ### Claude Code
 
-The Claude Code plugin cannot enable itself on every machine. Add this
-repository as a marketplace, install the plugin, then enable it in the plugin
-manager:
+Add this repository as a marketplace and install the plugin:
 
 ```text
-/plugin marketplace add /home/you/tmux-orchestrator
+/plugin marketplace add grota/tmux-orchestrator
 /plugin install tmux-orchestrator@tmux-orchestrator
-/plugin
 ```
 
-In the `/plugin` interface, open the installed plugin and enable it. After the
-next Claude Code session starts, the sidebar tracks it.
-
-`hooks.json` invokes `"${CLAUDE_PLUGIN_ROOT}/hooks/report.sh"`. That script
-resolves the shared reporter three directories above the plugin's `hooks/`
-directory (or uses `TMUX_ORCHESTRATOR_REPORTER` when set). Keep the marketplace
-source pointing at the whole repository checkout; do not copy only
-`plugins/claude` somewhere else.
+Enable it in the `/plugin` interface if it is not enabled already. The sidebar
+tracks Claude Code sessions started afterwards.
 
 ### OpenCode
 
-The installer copies the OpenCode TUI plugin into the user's plugin directory
-and substitutes the absolute path to this checkout's reporter:
+Let the tmux plugin keep the OpenCode adapter linked:
+
+```tmux
+set -g @tmux-orchestrator-opencode on
+```
+
+On every load, the tmux plugin links `~/.config/opencode/plugins/tmux-orchestrator`
+to its own `plugins/opencode` directory, so updating the tmux plugin updates the
+adapter. Restart OpenCode after the first install or a switch. To link once
+without the option, run:
 
 ```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator install
+tmux-orchestrator install opencode
 ```
 
-This writes:
-
-```text
-~/.config/opencode/plugins/tmux-orchestrator/tui.js
-```
-
-OpenCode loads it in each TUI, so it knows the pane and the tabs it runs in. The
-installer also deletes `~/.config/opencode/plugins/tmux-orchestrator.js`, the
-server plugin of earlier versions. It does not edit `opencode.json` or any other agent configuration. Remove the
-plugin with:
-
-```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator uninstall
-```
+`tmux-orchestrator uninstall opencode` removes the link. Both commands also delete
+`~/.config/opencode/plugins/tmux-orchestrator.js` and the copied adapter of
+earlier versions. They leave alone any path at that location that this project
+did not create.
 
 ## Sidebar
 
@@ -188,16 +175,16 @@ updating and the sidebar keeps rendering. There is no default pause key and no
 pause indicator in the sidebar.
 
 ```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator notify pause
-/home/you/tmux-orchestrator/bin/tmux-orchestrator notify resume
-/home/you/tmux-orchestrator/bin/tmux-orchestrator notify status
+tmux-orchestrator notify pause
+tmux-orchestrator notify resume
+tmux-orchestrator notify status
 ```
 
 Example tmux bindings:
 
 ```tmux
-bind-key N run-shell -b '/home/you/tmux-orchestrator/bin/tmux-orchestrator notify pause'
-bind-key M run-shell -b '/home/you/tmux-orchestrator/bin/tmux-orchestrator notify resume'
+bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
+bind-key M run-shell -b '#{@tmux-orchestrator-reporter} notify resume'
 ```
 
 Pause survives plugin reloads and client detach because it is a tmux option.
@@ -275,26 +262,54 @@ Unix socket that the TUI opens in `/tmp/tmux-orchestrator-<uid>/`.
 Recompute every session summary after an unexpected shutdown or stale state:
 
 ```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator reconcile
+tmux-orchestrator reconcile
 ```
 
 Remove state from panes whose process has exited (for `remain-on-exit` panes):
 
 ```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator gc
+tmux-orchestrator gc
 ```
 
 Toggle the sidebar from a script or binding:
 
 ```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator toggle
+tmux-orchestrator toggle
 ```
 
 Remove all agent options and this plugin's hook indexes from a running server:
 
 ```sh
-/home/you/tmux-orchestrator/bin/tmux-orchestrator cleanup
+tmux-orchestrator cleanup
 ```
+
+## Development
+
+Work from a git checkout, here `/path/to/checkout`. Load the tmux plugin from it
+instead of TPM:
+
+```tmux
+run-shell '/path/to/checkout/tmux-orchestrator.tmux'
+```
+
+Start Claude Code with the checkout's plugin:
+
+```sh
+claude --plugin-dir /path/to/checkout/plugins/claude
+```
+
+The adapters always use the reporter of the tmux plugin copy that is loaded.
+After switching between TPM and a checkout, reload tmux with
+`tmux source-file ~/.tmux.conf` (or `~/.config/tmux/tmux.conf`); running agents use the new reporter on their
+next event. With `@tmux-orchestrator-opencode on`, the OpenCode link follows the
+switch; restart OpenCode to load it.
+
+An adapter newer than the loaded reporter is ignored, and tmux shows a one-time
+message asking to update the tmux plugin.
+
+Run the tests with `bash tests/<name>-test.sh` for each shell suite and
+`node --test tests/` for the OpenCode adapter. The tests start private tmux
+servers and do not touch the running one.
 
 ## Known limitations
 

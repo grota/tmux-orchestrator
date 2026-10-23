@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Claude Code adapter: reads a hook payload on stdin and forwards it to the
-# shared reporter as an agent event (ADR-0005).  The reporter is resolved from
-# the repository checkout that contains this plugin; CLAUDE_PLUGIN_ROOT is
-# intentionally not used for the repository root because the plugin lives one
-# directory below it.
+# shared reporter as an agent event (ADR-0005).  Claude Code installs only this
+# plugin's directory, so the reporter is found through the tmux server the
+# agent runs in (ADR-0007): an explicit override, the option the tmux plugin
+# publishes, then PATH.
 set -u
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." 2>/dev/null && pwd || true)
-reporter=${TMUX_ORCHESTRATOR_REPORTER:-$root/bin/tmux-orchestrator}
-if [[ ! -x $reporter ]]; then
-	reporter=$(command -v tmux-orchestrator 2>/dev/null || true)
+[[ -n ${TMUX_PANE:-} ]] || exit 0
+reporter=${TMUX_ORCHESTRATOR_REPORTER:-}
+if [[ -z $reporter ]]; then
+	tmux_cmd=(tmux)
+	[[ -n ${TMUX_SOCKET:-} ]] && tmux_cmd+=(-L "$TMUX_SOCKET")
+	reporter=$("${tmux_cmd[@]}" show-options -gv @tmux-orchestrator-reporter 2>/dev/null || true)
 fi
-[[ -n $reporter && -n ${TMUX_PANE:-} ]] || exit 0
+[[ -n $reporter && -x $reporter ]] || reporter=$(command -v tmux-orchestrator 2>/dev/null || true)
+[[ -n $reporter ]] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
 fields=()
@@ -49,7 +52,7 @@ if [[ -n $agent_id ]]; then
 	sid=''
 fi
 
-args=(report --pane "$TMUX_PANE" --kind claude --event "$event")
+args=(report --protocol 1 --pane "$TMUX_PANE" --kind claude --event "$event")
 [[ -n $detail ]] && args+=(--detail "$detail")
 [[ -n $sid ]] && args+=(--session-id "$sid")
 [[ -n $cwd ]] && args+=(--cwd "$cwd")
