@@ -1,85 +1,117 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, readFile, writeFile, chmod } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-test("OpenCode plugin forwards lifecycle events to the reporter", async () => {
+async function fakeReporter() {
   const dir = await mkdtemp(join(tmpdir(), "tmux-orchestrator-plugin-"));
   const log = join(dir, "reporter.log");
   const reporter = join(dir, "reporter");
   await writeFile(reporter, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${log}'\n`);
   await chmod(reporter, 0o755);
+  process.env.TMUX_ORCHESTRATOR_REPORTER = reporter;
+  process.env.TMUX_ORCHESTRATOR_SOCKET_DIR = join(dir, "sockets");
+  const lines = async () => (await readFile(log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+  return { dir, lines };
+}
 
-  const source = await readFile(
-    new URL("../plugins/opencode/tmux-orchestrator.js", import.meta.url),
-    "utf8",
-  );
-  const installed = join(dir, "plugin.js");
-  await writeFile(installed, source.replace('"__REPORTER__"', JSON.stringify(reporter)));
-
-  process.env.TMUX_PANE = "%7";
-  const { TmuxOrchestratorPlugin } = await import(pathToFileURL(installed));
-  const hooks = await TmuxOrchestratorPlugin();
-
-  await hooks.event({
-    event: { type: "session.created", properties: { info: { id: "root", title: "fix-login" } } },
-  });
-  await hooks["chat.message"]({ sessionID: "root", directory: "/tmp/project" });
-  await hooks.event({
-    event: { type: "permission.asked", properties: { sessionID: "root" } },
-  });
-  await hooks.event({
-    event: { type: "session.deleted", properties: { sessionID: "root" } },
-  });
-  await sleep(300);
-
-  const lines = (await readFile(log, "utf8")).trim().split("\n");
-  assert.match(lines[0], /^report --pane %7 --kind opencode --state idle --name fix-login --session-id root/);
-  assert.match(lines[1], /^report --pane %7 --kind opencode --state working --session-id root/);
-  assert.match(lines[2], /^report --pane %7 --kind opencode --state blocked --session-id root/);
-  assert.match(lines[3], /^remove --pane %7$/);
-});
-
-test("OpenCode v2 setup subscribes to the event stream", async () => {
-  const dir = await mkdtemp(join(tmpdir(), "tmux-orchestrator-v2-"));
-  const log = join(dir, "reporter.log");
-  const reporter = join(dir, "reporter");
-  await writeFile(reporter, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> '${log}'\n`);
-  await chmod(reporter, 0o755);
-
-  const source = await readFile(
-    new URL("../plugins/opencode/tmux-orchestrator.js", import.meta.url),
-    "utf8",
-  );
-  const installed = join(dir, "plugin.js");
-  await writeFile(installed, source.replace('"__REPORTER__"', JSON.stringify(reporter)));
-
-  process.env.TMUX_PANE = "%8";
-  const { default: definition } = await import(pathToFileURL(installed));
-  const events = [
-    { type: "session.created", properties: { info: { id: "root", title: "v2-agent" } } },
-    { type: "permission.asked", properties: { sessionID: "root" } },
-    { type: "session.idle", properties: { sessionID: "root" } },
-    { type: "session.deleted", properties: { sessionID: "root" } },
-  ];
-  const ctx = {
-    event: {
-      async *subscribe() {
-        for (const event of events) yield event;
+// A fake TUI whose tabs can change while the plugin runs.
+function fakeTui() {
+  const state = { tabs: [], focused: [], listener: undefined };
+  const api = {
+    ui: {
+      tabs: {
+        enabled: () => true,
+        list: () => state.tabs,
+        focus: (sid) => {
+          state.focused.push(sid);
+          return true;
+        },
+      },
+      router: { current: () => ({ type: "home" }), navigate: () => {} },
+    },
+    data: {
+      listen: (handler) => {
+        state.listener = handler;
+        return () => {
+          state.listener = undefined;
+        };
+      },
+      session: {
+        root: (id) => id,
+        get: () => undefined,
+        status: () => "idle",
+        permission: { list: () => [] },
+        form: { list: () => [] },
       },
     },
   };
-  const cleanup = await definition.setup(ctx);
-  await sleep(300);
-  cleanup();
+  const emit = (type, data) => state.listener?.({ details: { id: "e", type, created: 0, data } });
+  return { api, state, emit };
+}
 
-  const lines = (await readFile(log, "utf8")).trim().split("\n");
-  assert.match(lines[0], /^report --pane %8 --kind opencode --state idle --name v2-agent --session-id root/);
-  assert.match(lines[1], /^report --pane %8 --kind opencode --state blocked --session-id root/);
-  assert.match(lines[2], /^report --pane %8 --kind opencode --state done --session-id root/);
-  assert.match(lines[3], /^remove --pane %8$/);
+test("the TUI plugin reports tabs, events in order, focus and exit", async () => {
+  const { lines } = await fakeReporter();
+  process.env.TMUX_PANE = "%7";
+  const { default: plugin } = await import("../plugins/opencode/tui.js");
+  const tui = fakeTui();
+  tui.state.tabs = [
+    { sessionID: "ses_a", title: "api", active: true, busy: false, attention: false },
+    { sessionID: "ses_b", title: "docs", active: false, busy: false, attention: false },
+  ];
+
+  const dispose = plugin.setup(tui.api);
+  await sleep(100);
+  tui.emit("session.execution.started", { sessionID: "ses_b" });
+  tui.emit("permission.asked", { sessionID: "ses_b" });
+  tui.emit("session.text.delta", { sessionID: "ses_b" });
+  tui.emit("permission.asked", { sessionID: "ses_other" });
+  await sleep(200);
+
+  // Closing a tab emits no event; the next poll sends a new snapshot.
+  tui.state.tabs = [tui.state.tabs[0]];
+  await sleep(400);
+
+  let out = await lines();
+  assert.equal(out[0], "tabs --pane %7 --active ses_a --tab ses_a idle api --tab ses_b idle docs");
+  const register = out.find((line) => line.startsWith("register"));
+  assert.match(register, /^register --pane %7 --socket .*\/7\.sock$/);
+  const events = out.filter((line) => line.startsWith("report"));
+  assert.deepEqual(events, [
+    "report --pane %7 --kind opencode --event session.execution.started --session-id ses_b",
+    "report --pane %7 --kind opencode --event permission.asked --session-id ses_b",
+  ]);
+  assert.equal(out.at(-1), "tabs --pane %7 --active ses_a --tab ses_a idle api");
+
+  // The reporter's focus request reaches ui.tabs.focus through the socket.
+  const socket = register.split(" --socket ")[1];
+  await new Promise((resolve, reject) => {
+    const client = connect(socket, () => client.end("focus ses_a\n"));
+    client.on("close", resolve);
+    client.on("error", reject);
+  });
+  await sleep(100);
+  assert.deepEqual(tui.state.focused, ["ses_a"]);
+
+  dispose();
+  await sleep(300);
+  out = await lines();
+  assert.equal(out.at(-1), "remove --pane %7");
+  assert.equal(existsSync(socket), false);
+});
+
+test("outside tmux the plugin does nothing", async () => {
+  const saved = process.env.TMUX_PANE;
+  delete process.env.TMUX_PANE;
+  const { default: plugin } = await import("../plugins/opencode/tui.js");
+  const tui = fakeTui();
+  const dispose = plugin.setup(tui.api);
+  assert.equal(tui.state.listener, undefined);
+  dispose();
+  process.env.TMUX_PANE = saved;
 });

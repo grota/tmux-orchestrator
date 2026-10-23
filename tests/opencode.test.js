@@ -1,118 +1,135 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createTracker, reduceEvent } from "../plugins/opencode/tmux-orchestrator.js";
+import { createQueue, eventArgs, snapshot, tabsArgs } from "../plugins/opencode/tui.js";
 
-const ev = (type, properties = {}) => ({ type, properties });
+// A fake OpenCode 2.x TUI API: tabs, sessions with roots, pending requests.
+function fakeApi({ tabs = [], roots = {}, running = [], permissions = {}, forms = {}, titles = {}, enabled = true, route } = {}) {
+  return {
+    ui: {
+      tabs: { enabled: () => enabled, list: () => tabs, focus: () => true },
+      router: { current: () => route ?? { type: "home" }, navigate: () => {} },
+    },
+    data: {
+      session: {
+        root: (id) => roots[id] ?? id,
+        get: (id) => (titles[id] ? { id, title: titles[id] } : undefined),
+        status: (id) => (running.includes(id) ? "running" : "idle"),
+        permission: { list: (id) => permissions[id] ?? [] },
+        form: { list: (id) => forms[id] ?? [] },
+      },
+    },
+  };
+}
 
-test("root session starts idle and carries its title", () => {
-  const t = createTracker();
-  const a = reduceEvent(t, ev("session.created", { info: { id: "root", title: "fix-login" } }));
-  assert.deepEqual(a, { state: "idle", name: "fix-login", sid: "root" });
-  assert.equal(t.root, "root");
-});
+const ev = (type, data) => ({ id: "e", type, created: 0, data });
 
-test("activity events become working", () => {
-  for (const type of [
-    "chat.message",
-    "tool.execute.before",
-    "tool.execute.after",
-    "permission.replied",
-    "question.replied",
-    "question.rejected",
-    "session.compacted",
-  ]) {
-    const t = createTracker();
-    reduceEvent(t, ev("session.created", { sessionID: "root" }));
-    const a = reduceEvent(t, ev(type, { sessionID: "root" }));
-    assert.equal(a.state, "working", type);
-  }
-});
-
-test("root permission and question requests block", () => {
-  for (const type of ["permission.asked", "question.asked"]) {
-    const t = createTracker();
-    reduceEvent(t, ev("session.created", { sessionID: "root" }));
-    assert.equal(reduceEvent(t, ev(type, { sessionID: "root" })).state, "blocked");
-  }
-});
-
-test("child permission blocks the root and child completion is ignored", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { info: { id: "root" } }));
-  assert.equal(
-    reduceEvent(t, ev("session.created", { info: { id: "child", parentID: "root" } })),
-    null,
-  );
-  assert.equal(reduceEvent(t, ev("permission.asked", { sessionID: "child" })).state, "blocked");
-  assert.equal(reduceEvent(t, ev("session.idle", { sessionID: "child" })), null);
-  assert.equal(t.root, "root");
-});
-
-test("idle is done after activity and idle otherwise", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { sessionID: "root" }));
-  assert.equal(reduceEvent(t, ev("session.idle", { sessionID: "root" })).state, "idle");
-  reduceEvent(t, ev("chat.message", { sessionID: "root" }));
-  assert.equal(reduceEvent(t, ev("session.idle", { sessionID: "root" })).state, "done");
-  assert.equal(reduceEvent(t, ev("session.idle", { sessionID: "root" })).state, "idle");
-});
-
-test("error persists across idle and clears on new activity", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { sessionID: "root" }));
-  assert.equal(reduceEvent(t, ev("session.error", { sessionID: "root" })).state, "error");
-  assert.equal(reduceEvent(t, ev("session.idle", { sessionID: "root" })).state, "error");
-  assert.equal(reduceEvent(t, ev("tool.execute.before", { sessionID: "root" })).state, "working");
-});
-
-test("title updates are name-only and child titles are ignored", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { info: { id: "root", title: "old" } }));
-  reduceEvent(t, ev("session.created", { info: { id: "child", parentID: "root", title: "child" } }));
-  assert.deepEqual(
-    reduceEvent(t, ev("session.updated", { info: { id: "child", title: "child-2" } })),
-    null,
-  );
-  assert.deepEqual(
-    reduceEvent(t, ev("session.updated", { info: { id: "root", title: "new" } })),
-    { name: "new", sid: "root" },
-  );
-});
-
-test("root deletion removes and child deletion only forgets the child", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { info: { id: "root" } }));
-  reduceEvent(t, ev("session.created", { info: { id: "child", parentID: "root" } }));
-  assert.equal(reduceEvent(t, ev("session.deleted", { sessionID: "child" })), null);
-  assert.equal(t.children.has("child"), false);
-  assert.deepEqual(reduceEvent(t, ev("session.deleted", { sessionID: "root" })), {
-    remove: true,
-    sid: "root",
+test("snapshot lists tabs in order with status, title and the active tab", () => {
+  const api = fakeApi({
+    tabs: [
+      { sessionID: "ses_a", title: "api", active: false, busy: true, attention: false },
+      { sessionID: "ses_b", title: "docs", active: true, busy: false, attention: false },
+      { sessionID: "ses_c", active: false, busy: false, attention: true },
+    ],
+    running: ["ses_a"],
+    forms: { ses_c: [{ id: "f" }] },
+    titles: { ses_c: "web" },
   });
-  assert.equal(t.root, undefined);
+  assert.deepEqual(snapshot(api), {
+    tabs: [
+      { sid: "ses_a", status: "running", title: "api" },
+      { sid: "ses_b", status: "idle", title: "docs" },
+      { sid: "ses_c", status: "pending", title: "web" },
+    ],
+    active: "ses_b",
+  });
 });
 
-test("unrelated events are ignored", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { sessionID: "root" }));
-  assert.equal(reduceEvent(t, ev("session.unknown", { sessionID: "root" })), null);
+test("with tabs disabled the shown session is the only agent", () => {
+  const api = fakeApi({
+    enabled: false,
+    route: { type: "session", sessionID: "ses_child" },
+    roots: { ses_child: "ses_root" },
+    permissions: { ses_root: [{ id: "p" }] },
+  });
+  assert.deepEqual(snapshot(api), { tabs: [{ sid: "ses_root", status: "pending", title: "" }], active: "ses_root" });
+  assert.deepEqual(snapshot(fakeApi({ enabled: false })), { tabs: [], active: "" });
 });
 
-test("child completion leaves the root working after its permission resolves", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { info: { id: "root" } }));
-  reduceEvent(t, ev("session.created", { info: { id: "child", parentID: "root" } }));
-  assert.equal(reduceEvent(t, ev("permission.asked", { sessionID: "child" })).state, "blocked");
-  assert.equal(reduceEvent(t, ev("permission.replied", { sessionID: "child" })).state, "working");
-  assert.equal(reduceEvent(t, ev("session.idle", { sessionID: "child" })), null);
-  assert.equal(t.root, "root");
+test("tab snapshots become reporter arguments", () => {
+  assert.deepEqual(tabsArgs("%7", { tabs: [{ sid: "a", status: "idle", title: "two words" }], active: "a" }), [
+    "tabs", "--pane", "%7", "--active", "a", "--tab", "a", "idle", "two words",
+  ]);
 });
 
-test("child question requests block the root too", () => {
-  const t = createTracker();
-  reduceEvent(t, ev("session.created", { info: { id: "root" } }));
-  reduceEvent(t, ev("session.created", { info: { id: "child", parentID: "root" } }));
-  assert.equal(reduceEvent(t, ev("question.asked", { sessionID: "child" })).state, "blocked");
-  assert.equal(reduceEvent(t, ev("question.rejected", { sessionID: "child" })).state, "working");
+test("agent events of open tabs are forwarded with their name", () => {
+  const api = fakeApi();
+  const open = new Set(["ses_a"]);
+  for (const type of [
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.execution.failed",
+    "session.execution.interrupted",
+    "permission.asked",
+    "permission.replied",
+    "form.replied",
+    "form.cancelled",
+  ]) {
+    assert.deepEqual(eventArgs("%7", ev(type, { sessionID: "ses_a" }), api, open), [
+      "report", "--pane", "%7", "--kind", "opencode", "--event", type, "--session-id", "ses_a",
+    ], type);
+  }
+  assert.deepEqual(eventArgs("%7", ev("form.created", { form: { id: "f", sessionID: "ses_a" } }), api, open).slice(6), [
+    "form.created", "--session-id", "ses_a",
+  ]);
+});
+
+test("streaming and unknown events stay in the TUI", () => {
+  const open = new Set(["ses_a"]);
+  for (const type of ["session.text.delta", "session.step.started", "session.created", "session.updated", "session.idle"]) {
+    assert.equal(eventArgs("%7", ev(type, { sessionID: "ses_a" }), fakeApi(), open), null, type);
+  }
+});
+
+test("events for sessions not open in this TUI are ignored", () => {
+  assert.equal(eventArgs("%7", ev("permission.asked", { sessionID: "ses_x" }), fakeApi(), new Set(["ses_a"])), null);
+});
+
+test("a child session's waits block the root, its outcome does not end it", () => {
+  const api = fakeApi({ roots: { ses_child: "ses_a" } });
+  const open = new Set(["ses_a"]);
+  assert.deepEqual(eventArgs("%7", ev("permission.asked", { sessionID: "ses_child" }), api, open).slice(-2), ["--session-id", "ses_a"]);
+  assert.deepEqual(eventArgs("%7", ev("form.created", { form: { sessionID: "ses_child" } }), api, open).slice(-2), ["--session-id", "ses_a"]);
+  for (const type of ["session.execution.succeeded", "session.execution.failed", "session.execution.interrupted", "session.renamed"]) {
+    assert.equal(eventArgs("%7", ev(type, { sessionID: "ses_child", title: "x" }), api, open), null, type);
+  }
+});
+
+test("a rename carries the new title", () => {
+  const args = eventArgs("%7", ev("session.renamed", { sessionID: "ses_a", title: "fix login" }), fakeApi(), new Set(["ses_a"]));
+  assert.deepEqual(args.slice(-2), ["--name", "fix login"]);
+});
+
+test("the queue runs reporter calls one at a time in order", async () => {
+  const log = [];
+  const run = async (args) => {
+    log.push(`start ${args[0]}`);
+    await new Promise((resolve) => setTimeout(resolve, args[0] === "slow" ? 30 : 1));
+    log.push(`end ${args[0]}`);
+  };
+  const enqueue = createQueue(run);
+  enqueue(["slow"]);
+  await enqueue(["fast"]);
+  assert.deepEqual(log, ["start slow", "end slow", "start fast", "end fast"]);
+});
+
+test("a failing reporter call does not stop the queue", async () => {
+  const log = [];
+  const enqueue = createQueue(async (args) => {
+    if (args[0] === "bad") throw new Error("boom");
+    log.push(args[0]);
+  });
+  enqueue(["bad"]);
+  await enqueue(["good"]);
+  assert.deepEqual(log, ["good"]);
 });

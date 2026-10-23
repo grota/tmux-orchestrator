@@ -1,1 +1,1 @@
-{"hook_event_name":"StopFailure","session_id":"sid-start","cwd":"/tmp/project"}
+{"hook_event_name":"StopFailure","session_id":"sid-start","cwd":"/tmp/project","error":"rate_limit"}

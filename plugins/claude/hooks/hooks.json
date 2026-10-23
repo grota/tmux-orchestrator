@@ -88,6 +88,28 @@
           }
         ]
       }
+    ],
+    "Elicitation": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/report.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "ElicitationResult": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/report.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }

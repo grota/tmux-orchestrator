@@ -4,6 +4,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
+. "$ROOT/tests/helpers.sh"
 S="tmux-orchestrator-notify-$$"
 export TMUX_SOCKET=$S
 FAKE="/tmp/tmux-orchestrator-fakebin-$$"
@@ -40,21 +41,21 @@ P0=$(tmux -L "$S" display -p -t alpha:main.0 '#{pane_id}')
 P1=$(tmux -L "$S" display -p -t alpha:main.1 '#{pane_id}')
 PB=$(tmux -L "$S" display -p -t beta:other.0 '#{pane_id}')
 
-"$BIN" report --pane "$P0" --state idle --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P1" --state idle --name other-agent --kind claude --session-id s1
+report_state "$P0" idle fix-login claude s0
+report_state "$P1" idle other-agent claude s1
 : >"$NOTIFY_LOG"
 
 # No tmux client at all: desktop channel still works, tmux has nowhere to go.
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 assert_contains "$NOTIFY_LOG" '● Agent blocked: fix-login'
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_notified_at 2>/dev/null || true)" ''
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_notified_at 2>/dev/null || true)" ''
 
 # Hostile names are sanitized in both channels; kind and location are absent.
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name $'evil#[fg=red]\nline' --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name $'evil#[fg=red]\nline' --kind claude --session-id s0
+report_state "$P0" working $'evil#[fg=red]\nline' claude s0
+report_state "$P0" blocked $'evil#[fg=red]\nline' claude s0
 assert_contains "$NOTIFY_LOG" '● Agent blocked: evil#[fg=red] line'
 ! grep -q 'claude\|s0' "$NOTIFY_LOG" || fail 'notification leaked kind or location'
 
@@ -65,16 +66,16 @@ sleep 0.8
 tmux -L "$S" select-window -t alpha:main
 tmux -L "$S" select-pane -t "$P0"
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_eq "$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)" 0
 
 # A client on another pane/session gets the tmux message; desktop is still sent.
 tmux -L "$S" select-pane -t "$P1"
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
 assert_contains "$NOTIFY_LOG" '● Agent blocked: fix-login'
 assert_contains "$CLIENT_LOG" '● fix-login blocked'
 
@@ -88,56 +89,57 @@ for _ in $(seq 1 30); do
 done
 assert_eq "$(tmux -L "$S" list-clients | wc -l | tr -d ' ')" 2
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 sleep 0.3
 assert_contains "$CLIENT_LOG.2" '● fix-login blocked'
 
 # Focus clears done on every client's own active pane, not just one.
-tmux -L "$S" set-option -p -t "$P0" @agent_state done
-tmux -L "$S" set-option -p -t "$PB" @agent_state done
+tmux -L "$S" set-option -p -t "$P0" @agent_1_state done
+report_state "$PB" working beta-agent claude sb
+report_state "$PB" done beta-agent claude sb
 "$BIN" focus
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_state)" idle
-assert_eq "$(tmux -L "$S" show-options -pv -t "$PB" @agent_state)" idle
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
+assert_eq "$(tmux -L "$S" show-options -pv -t "$PB" @agent_1_state)" idle
 kill "$CLIENT2_PID" 2>/dev/null || true
 CLIENT2_PID=
 tmux -L "$S" select-pane -t "$P1"
-tmux -L "$S" set-option -p -t "$P0" @agent_state blocked
+tmux -L "$S" set-option -p -t "$P0" @agent_1_state blocked
 BEFORE=$(count_lines "$NOTIFY_LOG")
 
 # Duplicate state does not notify again.
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" "$BEFORE"
 
 # done is desktop-deduped but tmux-done is under cooldown, so only desktop.
-"$BIN" report --pane "$P0" --state done --name fix-login --kind claude --session-id s0
+report_state "$P0" done fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" "$((BEFORE + 1))"
 assert_contains "$NOTIFY_LOG" '✓ Agent done: fix-login'
 
 # Focus clears done without a notification.
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state done --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" done fix-login claude s0
 BEFORE=$(count_lines "$NOTIFY_LOG")
 tmux -L "$S" select-window -t alpha:main
 tmux -L "$S" select-pane -t "$P0"
 "$BIN" focus
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_state)" idle
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
 assert_eq "$(count_lines "$NOTIFY_LOG")" "$BEFORE"
 
 # error bypasses the tmux cooldown.
 tmux -L "$S" select-window -t alpha:main
 tmux -L "$S" select-pane -t "$P1"
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state error --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" error fix-login claude s0
 assert_contains "$NOTIFY_LOG" '× Agent error: fix-login'
 assert_contains "$CLIENT_LOG" '× fix-login error'
 
 # After the cooldown, done reaches tmux again.
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
 sleep 2.1
-"$BIN" report --pane "$P0" --state done --name fix-login --kind claude --session-id s0
+report_state "$P0" done fix-login claude s0
 assert_contains "$CLIENT_LOG" '✓ fix-login done'
 
 # Pause suppresses both channels but keeps state.
@@ -145,24 +147,24 @@ assert_contains "$CLIENT_LOG" '✓ fix-login done'
 "$BIN" notify status | grep -q 'notifications: paused (both)' || fail 'pause status'
 : >"$NOTIFY_LOG"
 BEFORE_TMUX=$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_state)" blocked
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" blocked
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_eq "$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)" "$BEFORE_TMUX"
 
 "$BIN" notify resume
 "$BIN" notify status | grep -q 'notifications: both' || fail 'resume status'
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 
 # Channel off is reported explicitly.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify off
 "$BIN" notify status | grep -q 'notifications: off' || fail 'off status'
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 
 # Desktop-only with no desktop command is silent; both falls back to tmux.
@@ -173,14 +175,14 @@ for cmd in tmux date basename dirname tr head sed; do
 done
 tmux -L "$S" set-option -g @tmux-orchestrator-notify both
 : >"$NOTIFY_LOG"
-env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --state working --name fallback-agent --kind claude --session-id s0
-env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --state blocked --name fallback-agent --kind claude --session-id s0
+env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --name fallback-agent --session-id s0
+env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event PermissionRequest --name fallback-agent --session-id s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 grep -aFq '● fallback-agent blocked' "$CLIENT_LOG" || fail 'both did not fall back to tmux'
 
 tmux -L "$S" set-option -g @tmux-orchestrator-notify desktop
-env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --state working --name desktop-only-agent --kind claude --session-id s0
-env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --state blocked --name desktop-only-agent --kind claude --session-id s0
+env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --name desktop-only-agent --session-id s0
+env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event PermissionRequest --name desktop-only-agent --session-id s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 ! grep -aFq '● desktop-only-agent blocked' "$CLIENT_LOG" || fail 'desktop-only sent tmux message'
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" notify status >"$TMP_STATUS"
@@ -190,8 +192,8 @@ rm -rf "$NODESK"
 # The tmux-only channel never calls the desktop command.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify tmux
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name tmux-only --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name tmux-only --kind claude --session-id s0
+report_state "$P0" working tmux-only claude s0
+report_state "$P0" blocked tmux-only claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_contains "$CLIENT_LOG" '● tmux-only blocked'
 
@@ -203,6 +205,20 @@ tmux -L "$S" set-option -g @tmux-orchestrator-notify both
 "$ROOT/tmux-orchestrator.tmux"
 "$BIN" notify status | grep -q 'notifications: paused (both)' || fail 'pause did not survive reload'
 "$BIN" notify resume >/dev/null
+
+# An OpenCode tab counts as viewed only when it is the active tab.
+tmux -L "$S" new-window -t alpha -n tabs 'sleep 300'
+PT=$(tmux -L "$S" display -p -t alpha:tabs.0 '#{pane_id}')
+tmux -L "$S" select-window -t alpha:tabs
+"$BIN" tabs --pane "$PT" --active ses_a --tab ses_a idle front --tab ses_b idle back
+: >"$NOTIFY_LOG"
+"$BIN" report --pane "$PT" --kind opencode --event permission.asked --session-id ses_b
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+sleep 0.3
+assert_contains "$CLIENT_LOG" '● back blocked'
+: >"$NOTIFY_LOG"
+"$BIN" report --pane "$PT" --kind opencode --event permission.asked --session-id ses_a
+assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 
 kill "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=

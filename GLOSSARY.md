@@ -5,16 +5,20 @@ Glossary for the tmux-native agent orchestrator: a persistent view of agents run
 ## Language
 
 **Agent**:
-A Claude Code or OpenCode process running in a tmux pane whose state this project tracks.
-_Avoid_: worker, bot
+An agent session open in a tmux pane, whose state this project tracks. A Claude Code pane holds one agent; an OpenCode pane holds one per tab. Subagents are not agents: their activity counts toward the agent that started them.
+_Avoid_: worker, bot, process
 
 **Agent kind**:
 The product an agent belongs to: Claude Code or OpenCode.
 _Avoid_: agent type, agent name
 
 **Agent pane**:
-The tmux pane an agent runs in.
+The tmux pane that hosts one or more agents.
 _Avoid_: agent window, terminal
+
+**Tab**:
+An OpenCode tab showing one root agent session. Closing a tab ends that agent without ending the agent session.
+_Avoid_: window, view
 
 **Agent session**:
 A conversation inside Claude Code or OpenCode, identified by its own id and name.
@@ -27,6 +31,10 @@ _Avoid_: session
 **Agent state**:
 The lifecycle value shown for an agent: `working`, `blocked`, `done`, `idle`, `error`, or `unknown`.
 _Avoid_: status, agent status
+
+**Agent event**:
+A lifecycle event as the agent kind itself names it, such as Claude Code's `PermissionRequest` or OpenCode's `session.idle`, together with its details. Agent state is derived from agent events, plus the user viewing the agent pane.
+_Avoid_: hook, lifecycle event, normalized event
 
 **Agent notification**:
 A user-facing message emitted when an agent enters `blocked`, `error`, or `done`.

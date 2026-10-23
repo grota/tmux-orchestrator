@@ -10,6 +10,7 @@ else
 	REPORTER_PREFIX=''
 fi
 RUN_FOCUS="${REPORTER_PREFIX}'$REPORTER' focus"
+RUN_SELECT="${REPORTER_PREFIX}'$REPORTER' select"
 RUN_RECONCILE="${REPORTER_PREFIX}'$REPORTER' reconcile"
 RUN_GC="${REPORTER_PREFIX}'$REPORTER' gc"
 RUN_TOGGLE="${REPORTER_PREFIX}'$REPORTER' toggle"
@@ -45,12 +46,45 @@ else
 	"${TMUX[@]}" set-option -g side-status "$side"
 fi
 "${TMUX[@]}" set-option -g side-status-width "$width"
-"${TMUX[@]}" set-option -g side-status-format "$(cat "$CURRENT_DIR/lib/sidebar-format")"
 
-# Keep the default status-bar behaviour (switch-client -t=) and add the
-# selection steps that side-status ranges need.  The pane branch also clears a
-# done state when the already-active row is clicked.
-CLICK="switch-client -t= ; if -F '#{==:#{mouse_status_range},window}' 'select-window -t=' ; if -F '#{==:#{mouse_status_range},pane}' 'select-window -t= ; select-pane -t= ; run-shell -b \"$RUN_FOCUS\"'"
+# Assemble the sidebar from lib/sidebar-format: one icon fragment for every
+# state, one agent row repeated per slot, and the overflow row (ADR-0004).
+VISIBLE_SLOTS=9
+while IFS= read -r line; do
+	case "$line" in
+	icon=*) FMT_ICON=${line#icon=} ;;
+	agent_row=*) FMT_AGENT_ROW=${line#agent_row=} ;;
+	more_row=*) FMT_MORE_ROW=${line#more_row=} ;;
+	layout=*) FMT_LAYOUT=${line#layout=} ;;
+	esac
+done <"$CURRENT_DIR/lib/sidebar-format"
+
+# Replace every {ICON:option} marker in $1 with the icon fragment for option.
+expand_icons() {
+	local text=$1 out='' option
+	while [[ $text == *'{ICON:'* ]]; do
+		out+=${text%%\{ICON:*}
+		text=${text#*\{ICON:}
+		option=${text%%\}*}
+		text=${text#*\}}
+		out+=${FMT_ICON//\{STATE\}/"$option"}
+	done
+	printf '%s' "$out$text"
+}
+
+agent_rows=''
+for ((slot = 1; slot <= VISIBLE_SLOTS; slot++)); do
+	agent_rows+=${FMT_AGENT_ROW//\{I\}/"$slot"}
+done
+format=${FMT_LAYOUT/\{AGENT_ROWS\}/"$agent_rows"}
+format=${format/\{MORE_ROW\}/"$FMT_MORE_ROW"}
+"${TMUX[@]}" set-option -g side-status-format "$(expand_icons "$format")"
+
+# Session rows keep the default switch-client -t= behaviour.  Agent rows use a
+# user range that carries the pane ID: tmux's special mouse target (=) resolves
+# to the active pane for side-status pane ranges, so it cannot select the row.
+# The reporter receives the ID and executes select-window/select-pane itself.
+CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{==:#{mouse_status_range},window}' 'switch-client -t= ; select-window -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session},#{!=:#{mouse_status_range},window}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range}\"'"
 "${TMUX[@]}" bind-key -n MouseDown1Status "$CLICK"
 
 "${TMUX[@]}" bind-key "$toggle_key" run-shell -b "$RUN_TOGGLE"

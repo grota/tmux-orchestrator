@@ -16,7 +16,7 @@
 ## 3. Sidebar
 
 - [x] 3.1 Build the global `side-status-format` with session and agent sections, state icons, truncation, current-session marker, and the no-agents line; verify a format snapshot on a test socket contains the expected rows and omits empty sessions.
-- [x] 3.2 Add the click binding that preserves `switch-client -t=` and adds window/pane selection based on `mouse_status_range`; verify session, window, and pane clicks on a live test client, including a split window.
+- [x] 3.2 Add the click binding that switches sessions for session rows and routes agent rows through a user range to the reporter's `select`; verify session and split-window agent clicks on a live test client.
 - [x] 3.3 Add the toggle key binding and persist enabled/side/width settings; verify off hides the sidebar, on restores the configured side, and a reload does not resurrect a disabled sidebar.
 - [x] 3.4 Add the lifecycle hooks (`after-select-pane`, `after-select-window`, `client-session-changed`, `pane-exited`, `session-closed`) at fixed indexes; verify a reload does not duplicate them and a pane close updates the summary.
 - [x] 3.5 Document sidebar options, key binding, resize, and overflow in the README; verify the documented commands produce the described state.

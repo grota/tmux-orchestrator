@@ -5,6 +5,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
+. "$ROOT/tests/helpers.sh"
 S="tmux-orchestrator-e2e-$$"
 export TMUX_SOCKET=$S
 TMP=$(mktemp -d)
@@ -45,14 +46,15 @@ P4=$(tmux -L "$S" display -p -t alpha:second.1 '#{pane_id}')
 P5=$(tmux -L "$S" display -p -t alpha:second.2 '#{pane_id}')
 PB=$(tmux -L "$S" display -p -t beta:other.0 '#{pane_id}')
 
-"$BIN" report --pane "$P0" --state working --name e2e-working --kind claude --session-id s0
-"$BIN" report --pane "$P1" --state blocked --name e2e-blocked --kind claude --session-id s1
-"$BIN" report --pane "$P2" --state done --name e2e-done --kind claude --session-id s2
-"$BIN" report --pane "$P3" --state idle --name e2e-idle --kind opencode --session-id s3
-"$BIN" report --pane "$P4" --state error --name e2e-error --kind opencode --session-id s4
-tmux -L "$S" set-option -p -t "$P5" @agent_kind claude
-tmux -L "$S" set-option -p -t "$P5" @agent_name e2e-unknown
-"$BIN" report --pane "$PB" --state error --name e2e-beta --kind claude --session-id sb
+report_state "$P0" working e2e-working claude s0
+report_state "$P1" blocked e2e-blocked claude s1
+report_state "$P2" done e2e-done claude s2
+report_state "$P3" idle e2e-idle opencode s3
+report_state "$P4" error e2e-error opencode s4
+tmux -L "$S" set-option -p -t "$P5" @agent_n 1
+tmux -L "$S" set-option -p -t "$P5" @agent_1_kind claude
+tmux -L "$S" set-option -p -t "$P5" @agent_1_name e2e-unknown
+report_state "$PB" error e2e-beta claude sb
 "$BIN" reconcile
 assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_count)" 6
 assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_rollup)" blocked
@@ -66,14 +68,13 @@ for text in Sessions Agents '▸' alpha beta e2e-working e2e-blocked e2e-done e2
 done
 
 CLIENT_NAME=$(tmux -L "$S" list-clients -F '#{client_name}' | head -1)
-# Session, window, and pane selection steps used by the click binding.
+# Session switch and the pane selection run by the click binding.
 tmux -L "$S" switch-client -c "$CLIENT_NAME" -t beta
 assert_eq "$(tmux -L "$S" display -p -c "$CLIENT_NAME" '#{client_session}')" beta
 tmux -L "$S" switch-client -c "$CLIENT_NAME" -t alpha
-tmux -L "$S" select-window -t alpha:main
-tmux -L "$S" select-pane -t "$P2"
+"$BIN" select "$P2"
 sleep 0.3
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P2" @agent_state)" idle
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P2" @agent_1_state)" idle
 
 # Toggle and per-session native resize survive state refreshes.
 "$BIN" toggle
@@ -81,15 +82,15 @@ assert_eq "$(tmux -L "$S" show-options -gv side-status)" off
 "$BIN" toggle
 assert_eq "$(tmux -L "$S" show-options -gv side-status)" left
 tmux -L "$S" set-option -t alpha side-status-width 32
-"$BIN" report --pane "$P0" --state working --name e2e-working --kind claude --session-id s0
+report_state "$P0" working e2e-working claude s0
 assert_eq "$(tmux -L "$S" show-options -t alpha -v side-status-width)" 32
 
 # Notifications: the client is on alpha:second, not the agent pane.
 tmux -L "$S" select-window -t alpha:main
 tmux -L "$S" select-pane -t "$P1"
 : >"$NOTIFY_LOG"
-"$BIN" report --pane "$P0" --state working --name e2e-working --kind claude --session-id s0
-"$BIN" report --pane "$P0" --state blocked --name e2e-working --kind claude --session-id s0
+report_state "$P0" working e2e-working claude s0
+report_state "$P0" blocked e2e-working claude s0
 assert_contains "$NOTIFY_LOG" '● Agent blocked: e2e-working'
 assert_contains "$CLIENT_LOG" '● e2e-working blocked'
 ! grep -q 'claude\|%[0-9]' "$NOTIFY_LOG" || fail 'notification leaked kind or location'

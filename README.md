@@ -12,7 +12,10 @@ and no external database.
 
 - tmux 3.9 or newer (`side-status` is required).
 - `jq` for Claude Code hook payloads.
-- Claude Code 2.1.x and/or OpenCode 2.x.
+- Claude Code 2.1.x and/or OpenCode 2.x (tested with 2.1.3). OpenCode 1.x is not
+  supported.
+- `python3` or `nc` with `-U` support, to focus an OpenCode tab from the
+  sidebar.
 - Optional desktop notifications: `notify-send` on Linux or `osascript` on macOS.
 
 The plugin checks for `side-status` and refuses to enable the sidebar on older
@@ -27,27 +30,23 @@ Replace them with its absolute path; from the checkout root,
 All installation is user-level. No existing hook JSON or agent configuration
 file is rewritten.
 
-### tmux (TPM)
+### tmux
 
-Add the repository as a TPM plugin, then reload tmux:
-
-```tmux
-set -g @plugin 'owner/tmux-orchestrator'
-```
-
-For a local checkout, source the entry point directly instead:
+Run the entry point from your tmux configuration:
 
 ```tmux
 run-shell '/home/you/tmux-orchestrator/tmux-orchestrator.tmux'
 ```
 
-Reload with:
+Then reload tmux:
 
 ```sh
 tmux source-file ~/.tmux.conf
 ```
 
-TPM users can press `prefix + I` after adding the plugin.
+The repository has no published remote yet, so TPM's `set -g @plugin` form does
+not work until it does. Reloading is safe: the entry point replaces its own
+hooks and bindings instead of adding duplicates.
 
 ### Claude Code
 
@@ -72,8 +71,8 @@ source pointing at the whole repository checkout; do not copy only
 
 ### OpenCode
 
-The installer copies the OpenCode plugin into the user's plugin directory and
-substitutes the absolute path to this checkout's reporter:
+The installer copies the OpenCode TUI plugin into the user's plugin directory
+and substitutes the absolute path to this checkout's reporter:
 
 ```sh
 /home/you/tmux-orchestrator/bin/tmux-orchestrator install
@@ -82,10 +81,12 @@ substitutes the absolute path to this checkout's reporter:
 This writes:
 
 ```text
-~/.config/opencode/plugins/tmux-orchestrator.js
+~/.config/opencode/plugins/tmux-orchestrator/tui.js
 ```
 
-It does not edit `opencode.json` or any other agent configuration. Remove the
+OpenCode loads it in each TUI, so it knows the pane and the tabs it runs in. The
+installer also deletes `~/.config/opencode/plugins/tmux-orchestrator.js`, the
+server plugin of earlier versions. It does not edit `opencode.json` or any other agent configuration. Remove the
 plugin with:
 
 ```sh
@@ -118,21 +119,30 @@ Rows:
   current session is marked with `▸`.
 - An agent row shows the state icon, agent name, and kind (`claude` or
   `opencode`). Long names are truncated with `…`.
+- A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
+  tab order.
+- A pane shows at most nine agent rows. Further agents collapse into one
+  `+N more` row whose icon is the most urgent state among them.
 - Clicking a session row switches the client to that session. Clicking an agent
   row switches to its session, selects its window, and focuses its exact pane.
+  For an OpenCode row it also focuses that tab. Clicking `+N more` selects the
+  pane.
 - When there are more rows than fit, the list keeps the focused agent's row
   visible. It may trim session rows first, and it does not scroll the terminal.
 
+The plugin rebinds `MouseDown1Status` to handle these clicks, which replaces any
+existing binding for it.
+
 ### State icons
 
-| State | Icon | Colour |
-| --- | --- | --- |
-| working | `◐` | yellow |
-| blocked | `●` | red |
-| error | `×` | red |
-| done | `✓` | teal |
-| idle | `○` | green |
-| unknown | `·` | grey |
+| State   | Icon | Colour |
+| ------- | ---- | ------ |
+| working | `◐`  | yellow |
+| blocked | `●`  | red    |
+| error   | `×`  | red    |
+| done    | `✓`  | teal   |
+| idle    | `○`  | green  |
+| unknown | `·`  | grey   |
 
 Session rollups use the priority `blocked > error > done > working > idle >
 unknown`. `done` clears when the agent pane is focused. `error` stays until the
@@ -153,10 +163,10 @@ set -g @tmux-orchestrator-notify both
 
 Accepted values:
 
-- `both` — tmux and desktop; falls back to tmux when no desktop command exists.
-- `tmux` — tmux clients only.
-- `desktop` — desktop only; silently does nothing if no desktop command exists.
-- `off` — no notifications; state tracking continues.
+- `both`: tmux and desktop. Falls back to tmux when no desktop command exists.
+- `tmux`: tmux clients only.
+- `desktop`: desktop only. Does nothing if no desktop command exists.
+- `off`: no notifications. State tracking continues.
 
 Notification text is:
 
@@ -166,7 +176,7 @@ Notification text is:
 ```
 
 Kind and tmux location are deliberately omitted. A client that is viewing the
-agent's pane does not receive the tmux message, and the desktop notification is
+agent's pane (and, for OpenCode, its active tab) does not receive the tmux message, and the desktop notification is
 skipped when any attached client is viewing it. A two-second per-agent cooldown
 applies to tmux `done` messages; `blocked` and `error` bypass it. Desktop
 notifications have no cooldown.
@@ -195,20 +205,33 @@ Pause survives plugin reloads and client detach because it is a tmux option.
 
 ## Claude Code events
 
-The plugin maps main-thread hooks:
+The plugin forwards these hooks to the reporter, which maps them:
 
-| Event | State |
-| --- | --- |
-| `SessionStart` | `idle` |
-| `UserPromptSubmit` | `working` |
-| `PreToolUse`, `PostToolUse` | `working` |
-| `PermissionRequest` | `blocked` |
-| `Stop` | `done` |
-| `StopFailure` | `error` |
-| `SessionEnd` | removed |
+| Event                                                  | State                               |
+| ------------------------------------------------------ | ----------------------------------- |
+| `SessionStart`                                         | `idle`                              |
+| `UserPromptSubmit`, `PostToolUse`, `ElicitationResult` | `working`                           |
+| `PreToolUse`                                           | `working`                           |
+| `PreToolUse` for `AskUserQuestion` or `ExitPlanMode`   | `blocked`                           |
+| `PermissionRequest`, `Elicitation`                     | `blocked`                           |
+| `Stop`                                                 | `done` after work, otherwise `idle` |
+| `StopFailure`                                          | `error`                             |
+| interrupt (Esc), read from the transcript              | `idle`                              |
+| `SessionEnd`                                           | removed                             |
 
-Events with an `agent_id` (subagents) are ignored. `PostToolUseFailure` is not
-treated as an agent error.
+Subagent tool calls and permission requests count toward the main agent. A
+subagent never starts, completes or ends it. `PostToolUseFailure` is not treated
+as an agent error. A `Stop` after an `error` keeps `error` until new activity.
+
+Claude Code sends no hook when you interrupt a turn with Esc. While a turn runs,
+a background watcher reads the new lines of the session transcript every 3
+seconds and moves the agent to `idle` when Claude Code records the interrupt.
+The watcher stops when the turn ends, when the next prompt starts a new one, when
+the pane closes, or after an hour without transcript activity. It relies on the
+transcript's interrupt text, which Claude Code does not document.
+
+The last hook received is stored in the pane option `@agent_1_event`, for
+example `claude:StopFailure:rate_limit`.
 
 The session title is used when the hook provides one. Otherwise the reporter
 uses the working-directory basename immediately and asynchronously refreshes the
@@ -217,23 +240,35 @@ If the lookup is slow or fails, the fallback name remains.
 
 ## OpenCode events
 
-The OpenCode 2.x adapter subscribes to the event stream from its `setup`
-function. It maps:
+The adapter runs in the OpenCode TUI and reports each open tab as its own agent.
+It forwards these events to the reporter, which maps them:
 
-| Event | State |
-| --- | --- |
-| `session.created` | `idle` |
-| `chat.message`, `tool.execute.before`, `tool.execute.after`, `permission.replied`, `question.replied`, `question.rejected`, `session.compacted` | `working` |
-| `permission.asked`, `question.asked` | `blocked` |
-| `session.idle` | `done` after activity, otherwise `idle` |
-| `session.error` | `error` |
-| `session.deleted` | removed |
+- `session.execution.started`, `permission.replied`, `form.replied` and
+  `form.cancelled` to `working`.
+- `permission.asked` and `form.created` to `blocked`.
+- `session.execution.succeeded` to `done` after work, otherwise to `idle`.
+- `session.execution.failed` to `error`.
+- `session.execution.interrupted` to `idle`.
+- `session.renamed` to a new agent name.
 
-Child session permission and question events block the root pane. Child
-completion does not complete a working root. `session.idle` after `session.error`
-keeps `error` until new activity. The session title becomes the agent name and is
-updated when the title changes. Without a title, the working-directory basename
-is used.
+Other events, such as streamed text, stay in the TUI.
+
+Opening a tab adds an agent: `working` if the session is running, `blocked` if
+it has a pending permission or form, and `idle` otherwise. Closing a tab removes
+that agent without deleting its session. Exiting the TUI removes all of the
+pane's agents. With tabs disabled, the session the TUI shows is the pane's only
+agent.
+
+Subagents run as child sessions and count toward their root tab. A child asking
+for permission or input blocks the root. A child finishing, failing or being
+interrupted does not end the root's turn.
+
+A completion after `session.execution.failed` keeps `error` until new activity.
+The tab's session title is the agent name. Without a title, the working-directory
+basename is used.
+
+Clicking a tab's row focuses that tab. The reporter sends the request over a
+Unix socket that the TUI opens in `/tmp/tmux-orchestrator-<uid>/`.
 
 ## Maintenance
 
@@ -266,10 +301,16 @@ Remove all agent options and this plugin's hook indexes from a running server:
 - tmux 3.9 or newer is required; there is no fallback sidebar.
 - State is derived from lifecycle events only. A crashed agent that never sends
   `SessionEnd` can leave a stale row until `reconcile`, `gc`, or the pane closes.
-- Selecting a different pane clears `done` through the `after-select-pane` hook.
-  Sidebar agent-row clicks run `focus` explicitly, including for the active pane.
-- `MouseDown1Status` is rebound to keep the normal `switch-client -t=` behavior
-  and add window and pane selection for sidebar ranges.
+- Claude Code interrupts are read from the session transcript, whose format is
+  undocumented. If a Claude Code update changes the interrupt text, an
+  interrupted agent stays `working` until your next prompt.
+- An OpenCode agent on a background tab stays `done` until its tab becomes
+  active, even when its pane is focused.
+- Focusing an OpenCode tab from the sidebar needs `python3` or `nc -U`. Without
+  either, the click selects the pane but not the tab.
+- `done` clears only when a pane, window or session selection happens. An agent
+  that finishes in the pane you are already looking at stays `done` until you
+  select something or click its row.
 - Notifications omit location, so two agents with the same name are ambiguous;
   use the sidebar to disambiguate.
 - State disappears when the tmux server exits. There is no external history.

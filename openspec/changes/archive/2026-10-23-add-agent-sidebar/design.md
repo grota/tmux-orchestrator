@@ -48,7 +48,7 @@ Session summaries are derived data and may briefly lag under concurrent events. 
 
 ### Static global format
 
-The plugin sets one global `side-status-format`. The session section is an `S:` loop filtered by `@agent_count`; the agent section is `W:` > `P:` over the client's current session, filtered by `@agent_state`. Each row is wrapped in `range=session|…` or `range=pane|…`.
+The plugin sets one global `side-status-format`. The session section is an `S:` loop filtered by `@agent_count`; the agent section is `W:` > `P:` over the client's current session, filtered by `@agent_state`. Session rows use `range=session|…`; agent rows use `range=user|<pane-id>` so the click handler receives the target pane ID.
 
 Rationale: no process writes per-session format strings, so sessions and clients cannot disagree about the layout. The format reads the same options the reporter writes.
 
@@ -66,13 +66,15 @@ Formatting rules:
 
 `MouseDown1Status` is rebound to:
 
-1. `switch-client -t=`;
-2. if `mouse_status_range` is `window`, `select-window -t=`;
-3. if it is `pane`, `select-window -t=` then `select-pane -t=`.
+1. if `mouse_status_range` is `session`, `switch-client -t=`;
+2. if it is `window`, `switch-client -t=` then `select-window -t=`;
+3. for any other non-empty range, run the reporter's `select` command with the range value.
 
-Rationale: side-status clicks use the same mouse key as the normal status bar, so a narrow “only when x is inside the sidebar” handler would be brittle and would break other status plugins. The replacement keeps the default first step and adds the selection steps the sidebar needs. Normal window and pane clicks in the status bar get the same or better behavior.
+Agent rows use `range=user|<pane-id>`, so the reporter receives the exact pane ID and runs `select-window` and `select-pane` itself. The reporter then clears a `done` state on the selected pane.
 
-Alternatives rejected: a shell click handler (loses `-t=` mouse context), a separate mouse key (none exists for side-status), and coordinate sniffing (breaks with status at top, right side, and multi-client widths).
+Rationale: side-status clicks use the same mouse key as the normal status bar, so a narrow “only when x is inside the sidebar” handler would be brittle and would break other status plugins. Session and window ranges keep the default behavior. A pane range cannot use the special `=` target: tmux resolves it to the client's active pane, not the pane encoded in the range, so agent-row clicks would do nothing.
+
+Alternatives rejected: `range=pane` with `=` (does not select the target pane), a separate mouse key (none exists for side-status), and coordinate sniffing (breaks with status at top, right side, and multi-client widths).
 
 ### Async name lookup
 
@@ -127,7 +129,7 @@ The plugin appends, at fixed hook indexes, `after-select-pane`, `after-select-wi
 - **OpenCode event payloads can drift** → adapter reads only documented event names, falls back to the directory name, and is covered by an event-fixture test; the exact title field is verified during implementation.
 - **Crash leaves stale state when no `SessionEnd` fires and the pane stays open** → `reconcile` is available for manual repair; normal exits and pane closes are covered. A process-liveness check is deferred because `pane_current_command` is not reliable for wrapped agent binaries.
 - **Direct pane clicks may not clear `done` without focus events** → sidebar clicks and selection commands do; `pane-focus-in` can be added later if `focus-events` is enabled. This is a cosmetic delay, not a routing error.
-- **Overriding `MouseDown1Status` affects other status-bar clicks** → the replacement preserves `switch-client -t=` and only adds selection for window and pane ranges.
+- **Overriding `MouseDown1Status` affects other status-bar clicks** → session and window ranges keep the default behavior; only the plugin's user ranges invoke the reporter's `select`.
 - **Overflow can hide the session section when many agents exist** → `list=focus` keeps the active agent visible; the alternative, hiding active agents, is worse.
 - **`claude agents --json` may not list a just-started session** → fallback name is written immediately and refreshed on the next prompt; clicks use pane IDs, so routing is unaffected.
 - **Concurrent events can race the summary recompute** → recompute is idempotent and repeated on pane exit; the final scan wins.

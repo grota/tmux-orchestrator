@@ -4,6 +4,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
+. "$ROOT/tests/helpers.sh"
 S="tmux-orchestrator-sidebar-$$"
 export TMUX_SOCKET=$S
 LOG="/tmp/tmux-orchestrator-sidebar-$$.log"
@@ -37,18 +38,28 @@ P3=$(tmux -L "$S" display -p -t beta:other.0 '#{pane_id}')
 P4=$(tmux -L "$S" display -p -t alpha:second.1 '#{pane_id}')
 P5=$(tmux -L "$S" display -p -t alpha:second.2 '#{pane_id}')
 
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
-"$BIN" report --pane "$P1" --state blocked --name 'x#[fg=red]y' --kind opencode --session-id s1
-"$BIN" report --pane "$P2" --state done --name very-long-agent-name-that-should-truncate --kind claude --session-id s2
-"$BIN" report --pane "$P3" --state error --name beta-agent --kind opencode --session-id s3
-"$BIN" report --pane "$P5" --state idle --name idle-agent --kind claude --session-id s4
+report_state "$P0" working fix-login claude s0
+report_state "$P1" blocked 'x#[fg=red]y' opencode s1
+report_state "$P2" done very-long-agent-name-that-should-truncate claude s2
+report_state "$P3" error beta-agent opencode s3
+report_state "$P5" idle idle-agent claude s4
 
 # Marked but stateless pane must render as unknown, not disappear.
-tmux -L "$S" set-option -p -t "$P4" @agent_kind claude
-tmux -L "$S" set-option -p -t "$P4" @agent_name stateless
+tmux -L "$S" set-option -p -t "$P4" @agent_n 1
+tmux -L "$S" set-option -p -t "$P4" @agent_1_kind claude
+tmux -L "$S" set-option -p -t "$P4" @agent_1_name stateless
 "$BIN" reconcile
 
-(env -u TMUX TERM=xterm-256color timeout 4 script -qefc "tmux -L $S attach -t alpha" "$LOG" >/dev/null 2>&1) &
+# An OpenCode pane with eleven tabs shows nine rows and an overflow row.
+PO=$(tmux -L "$S" split-window -t alpha:main -d -P -F '#{pane_id}' 'sleep 300')
+TABS=()
+for i in 1 2 3 4 5 6 7 8 9 10 11; do
+	TABS+=(--tab "ses_$i" idle "tab-$i")
+done
+TABS[42]=pending
+"$BIN" tabs --pane "$PO" --active ses_1 "${TABS[@]}"
+
+(env -u TMUX TERM=xterm-256color timeout 4 script -qefc "stty rows 60 cols 120; tmux -L $S attach -t alpha" "$LOG" >/dev/null 2>&1) &
 CLIENT_PID=$!
 sleep 1
 
@@ -69,21 +80,38 @@ assert_contains "$LOG" '✓'
 assert_contains "$LOG" '○'
 assert_contains "$LOG" '·'
 assert_contains "$LOG" '…'
+assert_contains "$LOG" 'tab-2 '
+assert_contains "$LOG" 'tab-9 '
+assert_contains "$LOG" '+2 more'
+grep -aFq 'tab-11' "$LOG" && fail 'tab past the ninth slot was drawn'
 
-# The binding must preserve the default session switch and add window/pane
-# selection for side-status ranges.
+# A tab row click selects its pane; the overflow row selects the pane too.
+tmux -L "$S" select-pane -t "$P0"
+"$BIN" select "$PO:2"
+[[ $(tmux -L "$S" display -p -t alpha '#{pane_id}') == "$PO" ]] || fail 'tab row did not select its pane'
+tmux -L "$S" select-pane -t "$P0"
+"$BIN" select "$PO:+"
+[[ $(tmux -L "$S" display -p -t alpha '#{pane_id}') == "$PO" ]] || fail 'overflow row did not select its pane'
+"$BIN" remove --pane "$PO"
+tmux -L "$S" kill-pane -t "$PO"
+
+# Session rows keep the default switch-client; agent rows carry their pane ID
+# in a user range because tmux's "=" target resolves to the active pane.
 KEYS=$(tmux -L "$S" list-keys -T root MouseDown1Status)
-[[ $KEYS == *'switch-client -t ='* ]] || fail 'missing default switch-client'
-[[ $KEYS == *'select-window -t='* ]] || fail 'missing window selection'
-[[ $KEYS == *'select-pane -t='* ]] || fail 'missing pane selection'
+FMT=$(tmux -L "$S" show-options -gv side-status-format)
+[[ $KEYS == *'switch-client -t='* ]] || fail 'missing default switch-client'
+[[ $KEYS == *'select #{mouse_status_range}'* ]] || fail 'missing pane selection'
+[[ $FMT == *'range=user|#{pane_id}:3 '* ]] || fail 'agent rows must carry pane and slot'
+[[ $FMT == *'range=user|#{pane_id}:+'* ]] || fail 'overflow row must carry its pane'
+[[ $FMT != *'agent_10_'* ]] || fail 'more than nine slots generated'
+[[ $FMT != *'range=pane|'* ]] || fail 'pane ranges cannot target their pane'
 
-# Exercise the selection steps the binding uses, including a split window.
-tmux -L "$S" select-window -t alpha:simple 2>/dev/null || true
+# Exercise the selection path the binding uses, including a split window.
+tmux -L "$S" select-window -t alpha:main
 tmux -L "$S" select-pane -t "$P1"
-tmux -L "$S" select-window -t alpha:second
-tmux -L "$S" select-pane -t "$P2"
+"$BIN" select "$P2"
 sleep 0.3
-[[ $(tmux -L "$S" show-options -pv -t "$P2" @agent_state) == idle ]] || fail 'done did not clear on selection'
+[[ $(tmux -L "$S" show-options -pv -t "$P2" @agent_1_state) == idle ]] || fail 'done did not clear on selection'
 CLIENT_NAME=$(tmux -L "$S" list-clients -F '#{client_name}' | head -1)
 ACTIVE=$(tmux -L "$S" display -p -c "$CLIENT_NAME" '#{pane_id}')
 [[ $ACTIVE == "$P2" ]] || fail "pane selection failed: $ACTIVE"
@@ -95,14 +123,14 @@ tmux -L "$S" switch-client -c "$CLIENT_NAME" -t alpha
 
 # A native drag width is session-local and survives a state refresh.
 tmux -L "$S" set-option -t alpha side-status-width 32
-"$BIN" report --pane "$P0" --state working --name fix-login --kind claude --session-id s0
+report_state "$P0" working fix-login claude s0
 [[ $(tmux -L "$S" show-options -t alpha -v side-status-width) == 32 ]] || fail 'drag width reset by refresh'
 tmux -L "$S" set-option -t alpha -u side-status-width
 
 # pane-exited triggers a summary recomputation through the fixed hook.
 tmux -L "$S" new-window -t alpha -n transient 'sleep 300'
 PT=$(tmux -L "$S" display -p -t alpha:transient.0 '#{pane_id}')
-"$BIN" report --pane "$PT" --state working --name transient --kind claude --session-id st
+report_state "$PT" working transient claude st
 [[ $(tmux -L "$S" show-options -v -t alpha @agent_count) == 6 ]] || fail 'transient count'
 tmux -L "$S" respawn-pane -k -t "$PT" 'true'
 sleep 0.8
@@ -112,10 +140,10 @@ sleep 0.8
 tmux -L "$S" new-window -t alpha -n dead 'sleep 300'
 PD=$(tmux -L "$S" display -p -t alpha:dead.0 '#{pane_id}')
 tmux -L "$S" set-option -w -t alpha:dead remain-on-exit on
-"$BIN" report --pane "$PD" --state working --name dead --kind claude --session-id sd
+report_state "$PD" working dead claude sd
 tmux -L "$S" respawn-pane -k -t "$PD" 'true'
 sleep 0.8
-[[ $(tmux -L "$S" show-options -pv -t "$PD" @agent_state 2>/dev/null || true) == '' ]] || fail 'pane-died left agent state'
+[[ $(tmux -L "$S" show-options -pv -t "$PD" @agent_1_state 2>/dev/null || true) == '' ]] || fail 'pane-died left agent state'
 [[ $(tmux -L "$S" show-options -v -t alpha @agent_count) == 5 ]] || fail 'pane-died did not reconcile'
 
 kill "$CLIENT_PID" 2>/dev/null || true

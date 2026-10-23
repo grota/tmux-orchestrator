@@ -4,7 +4,8 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
-HOOK="$ROOT/plugins/claude/hooks/report.sh"
+HOOK=${HOOK:-$ROOT/plugins/claude/hooks/report.sh}
+export TMUX_ORCHESTRATOR_REPORTER="$BIN"
 FIX="$ROOT/tests/fixtures/claude"
 S="tmux-orchestrator-claude-$$"
 export TMUX_SOCKET=$S
@@ -14,8 +15,8 @@ cleanup() { tmux -L "$S" kill-server 2>/dev/null || true; rm -rf "${FAKE_CLAUDE_
 trap cleanup EXIT
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_eq() { [[ "$1" == "$2" ]] || fail "expected [$2], got [$1]"; }
-state() { tmux -L "$S" show-options -pv -t "$P" @agent_state 2>/dev/null || true; }
-raw() { tmux -L "$S" show-options -pv -t "$P" @agent_name_raw 2>/dev/null || true; }
+state() { tmux -L "$S" show-options -pv -t "$P" @agent_1_state 2>/dev/null || true; }
+raw() { tmux -L "$S" show-options -pv -t "$P" @agent_1_name_raw 2>/dev/null || true; }
 count() { tmux -L "$S" show-options -v -t alpha @agent_count 2>/dev/null || true; }
 
 tmux -L "$S" new-session -d -s alpha -n main -x 100 -y 40 'sleep 300'
@@ -25,8 +26,8 @@ export TMUX_PANE=$P
 "$HOOK" <"$FIX/session-start-title.json"
 assert_eq "$(state)" idle
 assert_eq "$(raw)" fix-login
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_kind)" claude
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_session)" sid-start
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_kind)" claude
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_sid)" sid-start
 assert_eq "$(count)" 1
 
 "$HOOK" <"$FIX/prompt-title.json"
@@ -42,8 +43,42 @@ assert_eq "$(state)" blocked
 "$HOOK" <"$FIX/stop.json"
 assert_eq "$(state)" done
 
+# Tools that wait for the user block; MCP input forms block until answered.
+"$HOOK" <"$FIX/prompt-title.json"
+"$HOOK" <"$FIX/ask-user.json"
+assert_eq "$(state)" blocked
+"$HOOK" <"$FIX/post-tool.json"
+assert_eq "$(state)" working
+"$HOOK" <"$FIX/exit-plan.json"
+assert_eq "$(state)" blocked
+"$HOOK" <"$FIX/post-tool.json"
+"$HOOK" <"$FIX/elicitation.json"
+assert_eq "$(state)" blocked
+"$HOOK" <"$FIX/elicitation-result.json"
+assert_eq "$(state)" working
+
+# A subagent's permission request blocks the main agent without taking its ID.
+"$HOOK" <"$FIX/subagent-permission.json"
+assert_eq "$(state)" blocked
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_sid)" sid-start
+
+# A prompt with a transcript starts interrupt detection on it.
+TR_DIR=$(mktemp -d)
+TR="$TR_DIR/session.jsonl"
+printf '{"type":"user"}\n' >"$TR"
+printf '{"hook_event_name":"UserPromptSubmit","session_id":"sid-start","cwd":"/tmp/project","session_title":"fix-login-v2","transcript_path":"%s"}\n' "$TR" |
+	TMUX_ORCHESTRATOR_WATCH_TICK=0.2 "$HOOK"
+assert_eq "$(state)" working
+printf '{"type":"user","isSidechain":false,"message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}\n' >>"$TR"
+for _ in $(seq 1 30); do [[ $(state) == idle ]] && break; sleep 0.1; done
+assert_eq "$(state)" idle
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_event)" claude:Interrupted
+rm -rf "$TR_DIR"
+
+"$HOOK" <"$FIX/prompt-title.json"
 "$HOOK" <"$FIX/stop-failure.json"
 assert_eq "$(state)" error
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_event)" claude:StopFailure:rate_limit
 "$HOOK" <"$FIX/stop.json"
 assert_eq "$(state)" error
 "$HOOK" <"$FIX/post-tool-failure.json"
@@ -52,12 +87,12 @@ assert_eq "$(state)" error
 # A subagent Stop must not touch the pane's main-thread state.
 "$HOOK" <"$FIX/subagent-stop.json"
 assert_eq "$(state)" error
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_session)" sid-start
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_sid)" sid-start
 
 # SessionEnd removes the agent and recomputes the session summary.
 "$HOOK" <"$FIX/session-end.json"
 assert_eq "$(count)" 0
-assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_kind 2>/dev/null || true)" ''
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_kind 2>/dev/null || true)" ''
 
 # Missing session_title falls back to the working-directory basename.
 "$HOOK" <"$FIX/session-start-fallback.json"
