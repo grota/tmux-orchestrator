@@ -32,4 +32,4 @@
 ## 6. Integration
 
 - [x] 6.1 Run every test script and `node --test tests/`, and confirm that all pass.
-- [ ] 6.2 (Skipped by the user on 2026-10-23: the reporter path and OpenCode link were confirmed live from the checkout; the switch to the TPM copy was not tested.) Ask the user to check live: reload tmux, run `install opencode`, restart OpenCode and a `--plugin-dir` Claude session, confirm both report, then switch to the other tmux plugin copy and confirm the reporter and link follow.
+- [x] 6.2 (Switch to the TPM copy confirmed live on 2026-10-24, after moving the plugin options above the TPM `run` line.) Ask the user to check live: reload tmux, run `install opencode`, restart OpenCode and a `--plugin-dir` Claude session, confirm both report, then switch to the other tmux plugin copy and confirm the reporter and link follow.

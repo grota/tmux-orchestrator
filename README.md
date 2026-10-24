@@ -35,6 +35,10 @@ tmux configuration, then press `prefix + I`:
 set -g @plugin 'grota/tmux-orchestrator'
 ```
 
+Set every `@tmux-orchestrator-*` option above the line that runs TPM
+(`run '~/.tmux/plugins/tpm/tpm'`). TPM loads the plugin on that line, and the
+plugin ignores options set after it.
+
 `prefix + U` updates it. The tmux plugin holds the only copy of the reporter and
 publishes its path in the global option `@tmux-orchestrator-reporter`. The
 Claude Code and OpenCode adapters find the reporter there.
@@ -60,7 +64,8 @@ tracks Claude Code sessions started afterwards.
 
 ### OpenCode
 
-Let the tmux plugin keep the OpenCode adapter linked:
+Let the tmux plugin keep the OpenCode adapter linked. Set the option above the
+TPM `run` line:
 
 ```tmux
 set -g @tmux-orchestrator-opencode on
