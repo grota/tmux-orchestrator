@@ -313,6 +313,14 @@ assert_eq "$(opt "$P0" @agent_n)" ''
 report_state "$P0" working 'semi;' claude s0
 assert_eq "$(opt "$P0" @agent_1_name_raw)" 'semi;'
 
+# The time in state resets only when the state changes.
+report_state "$P0" working alpha-one claude s0
+tmux -L "$S" set-option -p -t "$P0" @agent_1_since 100
+"$BIN" report --pane "$P0" --kind claude --event PostToolUse --session-id s0
+assert_eq "$(opt "$P0" @agent_1_since)" 100
+"$BIN" report --pane "$P0" --kind claude --event PermissionRequest --session-id s0
+[[ $(opt "$P0" @agent_1_since) -gt 100 ]] || fail 'time in state not reset'
+
 # reconcile rebuilds the session rollup from the pane slots.
 report_state "$P0" blocked alpha-one claude s0
 report_state "$P1" working alpha-two claude s1

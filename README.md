@@ -106,10 +106,13 @@ dragging.
 
 Rows:
 
-- A session row shows the rollup icon, session name, and agent count. The
+- A session row shows the rollup icon, session name, how many agents are
+  blocked (`●2`), in error (`×1`) or done (`✓1`), and the agent count. The
   current session is marked with `▸`.
-- An agent row shows the state icon, agent name, and kind (`claude` or
-  `opencode`). Long names are truncated with `…`.
+- An agent takes two lines. The first shows the state icon, the agent name,
+  and how long the agent has been in that state (`45s`, `3m12s`, `1h4m`),
+  right-aligned. The second shows the kind (`claude` or `opencode`). Long names
+  are truncated with `…`.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
@@ -159,6 +162,20 @@ Accepted values:
 - `desktop`: desktop only. Does nothing if no desktop command exists.
 - `off`: no notifications. State tracking continues.
 
+`@tmux-orchestrator-notify-via` chooses how the desktop part is delivered:
+
+```tmux
+set -g @tmux-orchestrator-notify-via terminal
+```
+
+- `desktop` (default): `notify-send` or `osascript`.
+- `terminal`: an OSC 9 escape sequence written to the terminal of the most
+  recently active client. The terminal emulator shows it (Ghostty, iTerm2,
+  WezTerm, Windows Terminal), which also works over SSH.
+- `both`: both of the above.
+- `none`: no desktop notification; tmux messages still follow
+  `@tmux-orchestrator-notify`.
+
 Notification text is:
 
 ```text
@@ -192,7 +209,8 @@ bind-key M run-shell -b '#{@tmux-orchestrator-reporter} notify resume'
 ```
 
 Pause survives plugin reloads and client detach because it is a tmux option.
-`notify status` reports the channel, pause state, and desktop availability.
+`notify status` reports the channel, pause state, desktop availability, and
+delivery route.
 
 ## Claude Code events
 

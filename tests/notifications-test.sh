@@ -197,6 +197,31 @@ report_state "$P0" blocked tmux-only claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_contains "$CLIENT_LOG" '● tmux-only blocked'
 
+# The terminal route sends OSC 9 to the client's terminal instead of the
+# system notifier; both sends to each.
+tmux -L "$S" set-option -g @tmux-orchestrator-notify desktop
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-via terminal
+: >"$NOTIFY_LOG"
+report_state "$P0" working term-agent claude s0
+report_state "$P0" blocked term-agent claude s0
+sleep 0.3
+assert_eq "$(count_lines "$NOTIFY_LOG")" 0
+assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: term-agent\a'
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-via both
+report_state "$P0" working both-agent claude s0
+report_state "$P0" blocked both-agent claude s0
+sleep 0.3
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: both-agent\a'
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-via none
+report_state "$P0" working none-agent claude s0
+report_state "$P0" blocked none-agent claude s0
+sleep 0.3
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+! grep -aFq $'\e]9;● Agent blocked: none-agent' "$CLIENT_LOG" || fail 'via none still notified'
+"$BIN" notify status | grep -q 'via: none' || fail 'status hid via'
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-via
+
 # Pause is idempotent and survives a plugin reload.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify both
 "$BIN" notify pause >/dev/null
