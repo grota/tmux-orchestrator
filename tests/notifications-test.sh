@@ -34,6 +34,8 @@ count_lines() { [[ -f "$1" ]] && wc -l <"$1" || printf 0; }
 count_tmux() { grep -acF -- "$1" "$CLIENT_LOG" 2>/dev/null || true; }
 
 tmux -L "$S" new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
+# Keep the developer's real OpenCode plugin link untouched.
+tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" split-window -t alpha:main -d 'sleep 300'
 tmux -L "$S" new-session -d -s beta -n other -x 120 -y 40 'sleep 300'
 "$ROOT/tmux-orchestrator.tmux"
@@ -144,7 +146,7 @@ assert_contains "$CLIENT_LOG" '✓ fix-login done'
 
 # Pause suppresses both channels but keeps state.
 "$BIN" notify pause
-"$BIN" notify status | grep -q 'notifications: paused (both)' || fail 'pause status'
+"$BIN" notify status | grep -q 'notifications: paused' || fail 'pause status'
 : >"$NOTIFY_LOG"
 BEFORE_TMUX=$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)
 report_state "$P0" working fix-login claude s0
@@ -154,75 +156,99 @@ assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_eq "$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)" "$BEFORE_TMUX"
 
 "$BIN" notify resume
-"$BIN" notify status | grep -q 'notifications: both' || fail 'resume status'
+"$BIN" notify status | grep -q 'notifications: active' || fail 'resume status'
 report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 
-# Channel off is reported explicitly.
+# Defaults: tmux and desktop on, terminal off.
+"$BIN" notify status >"$TMP_STATUS"
+for line in 'notifications: active' 'tmux: on' 'desktop: on (notify-send)' 'terminal: off'; do
+	grep -qF "$line" "$TMP_STATUS" || fail "default status lacks [$line]"
+done
+: >"$NOTIFY_LOG"
+report_state "$P0" working default-agent claude s0
+report_state "$P0" blocked default-agent claude s0
+sleep 0.3
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+assert_contains "$CLIENT_LOG" '● default-agent blocked'
+! grep -aFq $'\e]9;● Agent blocked: default-agent' "$CLIENT_LOG" || fail 'terminal on by default'
+
+# The old options are ignored.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify off
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-via none
+: >"$NOTIFY_LOG"
+report_state "$P0" working legacy-agent claude s0
+report_state "$P0" blocked legacy-agent claude s0
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-via
+
+# All channels off is reported explicitly and delivers nothing.
+for ch in tmux desktop terminal; do tmux -L "$S" set-option -g "@tmux-orchestrator-notify-$ch" off; done
 "$BIN" notify status | grep -q 'notifications: off' || fail 'off status'
 : >"$NOTIFY_LOG"
-report_state "$P0" working fix-login claude s0
-report_state "$P0" blocked fix-login claude s0
+report_state "$P0" working off-agent claude s0
+report_state "$P0" blocked off-agent claude s0
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" blocked
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
+! grep -aFq '● off-agent blocked' "$CLIENT_LOG" || fail 'all off still notified'
+for ch in tmux desktop terminal; do tmux -L "$S" set-option -gu "@tmux-orchestrator-notify-$ch"; done
 
-# Desktop-only with no desktop command is silent; both falls back to tmux.
+# Without a desktop command the desktop channel is silent and tmux still delivers.
 NODESK="/tmp/tmux-orchestrator-nodesktop-$$"
 mkdir -p "$NODESK"
 for cmd in tmux date basename dirname tr head sed; do
 	command -v "$cmd" >/dev/null 2>&1 && ln -s "$(command -v "$cmd")" "$NODESK/$cmd"
 done
-tmux -L "$S" set-option -g @tmux-orchestrator-notify both
 : >"$NOTIFY_LOG"
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --name fallback-agent --session-id s0
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event PermissionRequest --name fallback-agent --session-id s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-grep -aFq '● fallback-agent blocked' "$CLIENT_LOG" || fail 'both did not fall back to tmux'
-
-tmux -L "$S" set-option -g @tmux-orchestrator-notify desktop
-env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --name desktop-only-agent --session-id s0
-env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event PermissionRequest --name desktop-only-agent --session-id s0
-assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-! grep -aFq '● desktop-only-agent blocked' "$CLIENT_LOG" || fail 'desktop-only sent tmux message'
+grep -aFq '● fallback-agent blocked' "$CLIENT_LOG" || fail 'tmux did not deliver without desktop'
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" notify status >"$TMP_STATUS"
-grep -q 'desktop: unavailable' "$TMP_STATUS" || fail 'status hid missing desktop command'
+grep -qF 'desktop: on (unavailable)' "$TMP_STATUS" || fail 'status hid missing desktop command'
 rm -rf "$NODESK"
 
-# The tmux-only channel never calls the desktop command.
-tmux -L "$S" set-option -g @tmux-orchestrator-notify tmux
+# Desktop off never calls the desktop command.
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-desktop off
 : >"$NOTIFY_LOG"
 report_state "$P0" working tmux-only claude s0
 report_state "$P0" blocked tmux-only claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_contains "$CLIENT_LOG" '● tmux-only blocked'
 
-# The terminal route sends OSC 9 to the client's terminal instead of the
-# system notifier; both sends to each.
-tmux -L "$S" set-option -g @tmux-orchestrator-notify desktop
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-via terminal
+# Terminal only: an OSC 9 sequence to the client's terminal and nothing else.
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-tmux off
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-terminal on
 : >"$NOTIFY_LOG"
 report_state "$P0" working term-agent claude s0
 report_state "$P0" blocked term-agent claude s0
 sleep 0.3
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: term-agent\a'
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-via both
-report_state "$P0" working both-agent claude s0
-report_state "$P0" blocked both-agent claude s0
+! grep -aFq '● term-agent blocked' "$CLIENT_LOG" || fail 'tmux off still sent a message'
+
+# All three on: each channel delivers.
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-tmux
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-desktop
+report_state "$P0" working all-agent claude s0
+report_state "$P0" blocked all-agent claude s0
 sleep 0.3
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
-assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: both-agent\a'
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-via none
-report_state "$P0" working none-agent claude s0
-report_state "$P0" blocked none-agent claude s0
+assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: all-agent\a'
+assert_contains "$CLIENT_LOG" '● all-agent blocked'
+
+# An unrecognised value means the channel default.
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-terminal yes
+"$BIN" notify status | grep -qF 'terminal: off' || fail 'unrecognised value not default'
+report_state "$P0" working yes-agent claude s0
+report_state "$P0" blocked yes-agent claude s0
 sleep 0.3
-assert_eq "$(count_lines "$NOTIFY_LOG")" 1
-! grep -aFq $'\e]9;● Agent blocked: none-agent' "$CLIENT_LOG" || fail 'via none still notified'
-"$BIN" notify status | grep -q 'via: none' || fail 'status hid via'
+! grep -aFq $'\e]9;● Agent blocked: yes-agent' "$CLIENT_LOG" || fail 'unrecognised value enabled terminal'
 
 # A control-mode client gets no OSC 9 even when it is the most recently active.
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-via terminal
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-terminal on
 CTL_LOG="/tmp/tmux-orchestrator-control-$$.log"
 (sleep 3 | tmux -L "$S" -C attach -t alpha >"$CTL_LOG" 2>&1) &
 sleep 0.5
@@ -232,15 +258,14 @@ sleep 0.3
 ! grep -aFq $'\e]9;' "$CTL_LOG" || fail 'OSC 9 sent to a control-mode client'
 assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: control-agent\a'
 rm -f "$CTL_LOG"
-tmux -L "$S" set-option -gu @tmux-orchestrator-notify-via
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-terminal
 
 # Pause is idempotent and survives a plugin reload.
-tmux -L "$S" set-option -g @tmux-orchestrator-notify both
 "$BIN" notify pause >/dev/null
 "$BIN" notify pause >/dev/null
-"$BIN" notify status | grep -q 'notifications: paused (both)' || fail 'pause idempotence'
+"$BIN" notify status | grep -q 'notifications: paused' || fail 'pause idempotence'
 "$ROOT/tmux-orchestrator.tmux"
-"$BIN" notify status | grep -q 'notifications: paused (both)' || fail 'pause did not survive reload'
+"$BIN" notify status | grep -q 'notifications: paused' || fail 'pause did not survive reload'
 "$BIN" notify resume >/dev/null
 
 # An OpenCode tab counts as viewed only when it is the active tab.

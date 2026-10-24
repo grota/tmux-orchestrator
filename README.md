@@ -43,13 +43,6 @@ plugin ignores options set after it.
 publishes its path in the global option `@tmux-orchestrator-reporter`. The
 Claude Code and OpenCode adapters find the reporter there.
 
-The shell examples in this README call the reporter `tmux-orchestrator`. To run
-them as written, define an alias:
-
-```sh
-alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
-```
-
 ### Claude Code
 
 Add this repository as a marketplace and install the plugin:
@@ -64,25 +57,14 @@ tracks Claude Code sessions started afterwards.
 
 ### OpenCode
 
-Let the tmux plugin keep the OpenCode adapter linked. Set the option above the
-TPM `run` line:
+The tmux plugin links the OpenCode adapter automatically when OpenCode is
+installed, and keeps the link pointing at the loaded copy, so updating the tmux
+plugin updates the adapter. Restart OpenCode after the first install. To turn
+this off, set the option above the TPM `run` line:
 
 ```tmux
-set -g @tmux-orchestrator-opencode on
+set -g @tmux-orchestrator-opencode-auto-install off
 ```
-
-On every load, the tmux plugin links `~/.config/opencode/plugins/tmux-orchestrator`
-to its own `plugins/opencode` directory, so updating the tmux plugin updates the
-adapter. Restart OpenCode after the first install or a switch. To link once
-without the option, run:
-
-```sh
-tmux-orchestrator install opencode
-```
-
-`tmux-orchestrator uninstall opencode` removes the link. Both commands leave
-alone any path at that location that is not a link to a `plugins/opencode`
-directory.
 
 ## Sidebar
 
@@ -92,13 +74,16 @@ the plugin loads:
 ```tmux
 set -g @tmux-orchestrator-side right
 set -g @tmux-orchestrator-width 32
-set -g @tmux-orchestrator-toggle-key T
+set -g @tmux-orchestrator-toggle-key S
 ```
 
-`@tmux-orchestrator-side` accepts `left` or `right`. The toggle key defaults to
-`O` and is not reserved when set to another key. The enabled state is persisted
-in `@tmux-orchestrator-enabled`, so reloading tmux does not bring back a
-sidebar that was toggled off.
+`@tmux-orchestrator-side` accepts `left` or `right`. The toggle key shows and
+hides the sidebar; it defaults to `O`, so `prefix + O`. The plugin binds it
+only if the key is free in the prefix table or already holds the plugin's
+toggle. Otherwise it keeps your binding and shows a message. Changing the key
+and reloading removes the plugin's binding from the old key. The enabled state
+is persisted in `@tmux-orchestrator-enabled`, so reloading tmux does not bring
+back a sidebar that was toggled off.
 
 Drag the sidebar border to resize it. Double-click the border to reset the width
 to `@tmux-orchestrator-width`. State refreshes do not reset a width changed by
@@ -109,11 +94,18 @@ Rows:
 - A session row shows the rollup icon, session name, how many agents are
   blocked (`●2`), in error (`×1`) or done (`✓1`), and the agent count. The
   current session is marked with `▸`.
-- An agent takes two lines. The first shows the state icon, the agent name,
-  and how long the agent has been in that state (`45s`, `3m12s`, `1h4m`),
-  right-aligned. The second shows the kind (`claude` or `opencode`). Long names
-  are truncated with `…`. `set -g @tmux-orchestrator-time off` hides the time
-  at once, with no reload.
+- An agent shows the state icon and the agent name, then a grey line with the
+  kind (`claude` or `opencode`) and, right-aligned, how long the agent has been
+  in that state (`45s`, `3m12s`, `1h4m`). `set -g @tmux-orchestrator-time off`
+  hides the time at once, with no reload.
+- Long names wrap over up to four lines, indented under the first one, and the
+  fourth ends in `…` if the name still does not fit. Wrapping follows the
+  sidebar width, including a dragged border.
+  `@tmux-orchestrator-name-max-chars` changes this at once, with no reload:
+  `wrap` (the default), `nowrap` for one line cut to the width, or a number
+  such as `20` for one line of at most that many characters.
+- The focused agent, the one in the pane you are viewing (for OpenCode, its
+  active tab), has its name in bold.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
@@ -124,6 +116,12 @@ Rows:
   pane.
 - When there are more rows than fit, the list keeps the focused agent's row
   visible. It may trim session rows first, and it does not scroll the terminal.
+
+The last row, `? keys`, opens and closes the keys panel for every client. The
+panel lists the toggle key and every key binding whose command calls the
+reporter, such as the pause bindings under
+[Pause and resume](#pause-and-resume). It reads them when it opens, so bindings
+added later appear the next time.
 
 The plugin rebinds `MouseDown1Status` to handle these clicks, which replaces any
 existing binding for it.
@@ -149,33 +147,25 @@ Notifications are sent for transitions into `blocked`, `error`, and `done`.
 They are not sent for `working`, `idle`, `unknown`, repeated states, focus
 clearing, or agent removal.
 
-The default channel is `both`: tmux and the desktop where a supported desktop
-command exists. Configure it with:
+Each notification channel has its own option, `on` or `off`:
 
 ```tmux
-set -g @tmux-orchestrator-notify both
+set -g @tmux-orchestrator-notify-tmux on
+set -g @tmux-orchestrator-notify-desktop on
+set -g @tmux-orchestrator-notify-terminal off
 ```
 
-Accepted values:
+- `@tmux-orchestrator-notify-tmux` (default `on`): a message on tmux clients.
+- `@tmux-orchestrator-notify-desktop` (default `on`): `notify-send` on Linux or
+  `osascript` on macOS. Does nothing if neither command exists.
+- `@tmux-orchestrator-notify-terminal` (default `off`): an OSC 9 escape sequence
+  written to the terminal of the most recently active client. The terminal
+  emulator shows it (Ghostty, iTerm2, WezTerm, Windows Terminal), which also
+  works over SSH. It is off by default because those terminals turn it into a
+  system notification, so with the desktop channel on you would see each one
+  twice.
 
-- `both`: tmux and desktop. Falls back to tmux when no desktop command exists.
-- `tmux`: tmux clients only.
-- `desktop`: desktop only. Does nothing if no desktop command exists.
-- `off`: no notifications. State tracking continues.
-
-`@tmux-orchestrator-notify-via` chooses how the desktop part is delivered:
-
-```tmux
-set -g @tmux-orchestrator-notify-via terminal
-```
-
-- `desktop` (default): `notify-send` or `osascript`.
-- `terminal`: an OSC 9 escape sequence written to the terminal of the most
-  recently active client. The terminal emulator shows it (Ghostty, iTerm2,
-  WezTerm, Windows Terminal), which also works over SSH.
-- `both`: both of the above.
-- `none`: no desktop notification; tmux messages still follow
-  `@tmux-orchestrator-notify`.
+Set all three to `off` to stop notifications. State tracking continues.
 
 Notification text is:
 
@@ -185,33 +175,13 @@ Notification text is:
 ```
 
 Kind and tmux location are deliberately omitted. A client that is viewing the
-agent's pane (and, for OpenCode, its active tab) does not receive the tmux message, and the desktop notification is
-skipped when any attached client is viewing it. A two-second per-agent cooldown
-applies to tmux `done` messages; `blocked` and `error` bypass it. Desktop
-notifications have no cooldown.
+agent's pane (and, for OpenCode, its active tab) does not receive the tmux message, and desktop and terminal notifications
+are skipped when any attached client is viewing it. A two-second per-agent cooldown
+applies to tmux `done` messages; `blocked` and `error` bypass it. Desktop and
+terminal notifications have no cooldown.
 
-### Pause and resume
-
-Pause is global and indefinite. It suppresses both channels while states keep
-updating and the sidebar keeps rendering. There is no default pause key and no
-pause indicator in the sidebar.
-
-```sh
-tmux-orchestrator notify pause
-tmux-orchestrator notify resume
-tmux-orchestrator notify status
-```
-
-Example tmux bindings:
-
-```tmux
-bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
-bind-key M run-shell -b '#{@tmux-orchestrator-reporter} notify resume'
-```
-
-Pause survives plugin reloads and client detach because it is a tmux option.
-`notify status` reports the channel, pause state, desktop availability, and
-delivery route.
+To stop notifications for a while without changing these options, see
+[Pause and resume](#pause-and-resume).
 
 ## Claude Code events
 
@@ -285,7 +255,42 @@ Clicking a tab's row focuses that tab. The reporter sends the request over a
 Unix socket that the TUI opens in `tmux-orchestrator-<uid>/` under
 `$XDG_RUNTIME_DIR`, or under the system temporary directory when it is unset.
 
-## Maintenance
+## Optional command line commands
+
+The plugin runs the reporter for you. These commands are for scripts, custom
+bindings, and recovery.
+
+The shell examples in this README call the reporter `tmux-orchestrator`. To run
+them as written, define an alias:
+
+```sh
+alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
+```
+
+### Pause and resume
+
+Pause is global and indefinite. It suppresses every channel while states keep
+updating and the sidebar keeps rendering. There is no default pause key and no
+pause indicator in the sidebar.
+
+```sh
+tmux-orchestrator notify pause
+tmux-orchestrator notify resume
+tmux-orchestrator notify status
+```
+
+Example tmux bindings:
+
+```tmux
+bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
+bind-key M run-shell -b '#{@tmux-orchestrator-reporter} notify resume'
+```
+
+Pause survives plugin reloads and client detach because it is a tmux option.
+`notify status` reports the pause state, each channel's setting, and whether a
+desktop command is available.
+
+### Maintenance
 
 Recompute every session summary after an unexpected shutdown or stale state:
 
@@ -311,6 +316,18 @@ Remove all agent options and this plugin's hook indexes from a running server:
 tmux-orchestrator cleanup
 ```
 
+### OpenCode adapter
+
+Link the adapter by hand, for example when auto-install is off:
+
+```sh
+tmux-orchestrator install opencode
+```
+
+`tmux-orchestrator uninstall opencode` removes the link. Both commands leave
+alone any path at that location that is not a link to a `plugins/opencode`
+directory.
+
 ## Development
 
 Work from a git checkout, here `/path/to/checkout`. Load the tmux plugin from it
@@ -329,8 +346,8 @@ claude --plugin-dir /path/to/checkout/plugins/claude
 The adapters always use the reporter of the tmux plugin copy that is loaded.
 After switching between TPM and a checkout, reload tmux with
 `tmux source-file ~/.tmux.conf` (or `~/.config/tmux/tmux.conf`); running agents use the new reporter on their
-next event. With `@tmux-orchestrator-opencode on`, the OpenCode link follows the
-switch; restart OpenCode to load it.
+next event. When OpenCode is installed, its link follows the switch; restart OpenCode to
+load it.
 
 An adapter newer than the loaded reporter is ignored, and tmux shows a one-time
 message asking to update the tmux plugin.
@@ -356,6 +373,9 @@ servers and do not touch the running one.
   select something or click its row.
 - Notifications omit location, so two agents with the same name are ambiguous;
   use the sidebar to disambiguate.
+- Claude Code background sessions opened with `claude attach` are not tracked.
+  Their hooks run in Claude Code's background process, outside any tmux pane,
+  so the reporter cannot tell which pane shows them.
 - State disappears when the tmux server exits. There is no external history.
 - The Claude name lookup depends on `claude agents --json`; a missing or slow
   lookup falls back to the directory basename.

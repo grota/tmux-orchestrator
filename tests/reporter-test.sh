@@ -23,6 +23,8 @@ assert_eq() {
 }
 
 tmux -L "$S" new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
+# Keep the developer's real OpenCode plugin link untouched.
+tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" new-window -t alpha -n second 'sleep 300'
 tmux -L "$S" split-window -t alpha:main -d 'sleep 300' 
 P0=$(tmux -L "$S" display -p -t alpha:main.0 '#{pane_id}')

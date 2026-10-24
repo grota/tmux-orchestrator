@@ -4,10 +4,25 @@
 #   {ICON:x} is replaced by the icon fragment for option x.
 #   {I}      is replaced by the slot number, inside agent_row.
 #   {AGENT_ROWS} is replaced by agent_row for slots 1 to slots.
+#   {NAME_FIRST} and {NAME_MORE} are replaced inside agent_row: name_more is
+#                repeated for name lines 2 to name_lines, with {OFF} the
+#                number of name widths already shown and {CUT} the width
+#                limit, ending in … on the last line (ADR-0008).
+#   {NW}, {FOCUS}, {FIXED} and {NOWRAP} are replaced by the fragments below.
 # @tmux-orchestrator-time off hides the time in state, live.
+# @tmux-orchestrator-name-max-chars (wrap, nowrap or N) is read live.
+# tmux drops a range opened in the same #[] block as align=right, so the
+# keys footer sets them in separate blocks.
 # The reporter reads slots too: agents past it share the overflow row.
 slots=9
+name_lines=4
 icon=#{?#{==:#{{STATE}},working},#[fg=yellow]◐,#{?#{==:#{{STATE}},blocked},#[fg=red]●,#{?#{==:#{{STATE}},error},#[fg=red]×,#{?#{==:#{{STATE}},done},#[fg=colour37]✓,#{?#{==:#{{STATE}},idle},#[fg=green]○,#[fg=colour8]·}}}}}
-agent_row=#{?#{@agent_{I}_kind},#[range=user|#{pane_id}:{I} #{?#{&&:#{&&:#{window_active},#{pane_active}},#{==:#{@agent_active},{I}}},list=focus,}]{ICON:@agent_{I}_state} #[fg=default]#{=/#{e|-:#{side-status-width},#{?#{==:#{@tmux-orchestrator-time},off},4,11}}/…:@agent_{I}_name}#{?#{&&:#{@agent_{I}_since},#{!=:#{@tmux-orchestrator-time},off}},#[align=right fg=colour8]#{t/r:@agent_{I}_since} #[align=left],}#[norange list=on default]#[nl]#[range=user|#{pane_id}:{I}]  #[fg=colour8]#{@agent_{I}_kind}#[norange list=on default]#[nl],}
+nw=#{e|-:#{side-status-width},3}
+focus=#{&&:#{&&:#{window_active},#{pane_active}},#{==:#{@agent_active},{I}}}
+fixed=#{m/r:^[1-9][0-9]*$,#{@tmux-orchestrator-name-max-chars}}
+nowrap=#{==:#{@tmux-orchestrator-name-max-chars},nowrap}
+name_first=#{?{NOWRAP},#{=/{NW}/…:@agent_{I}_name},#{?{FIXED},#{=/#{?#{e|<:#{@tmux-orchestrator-name-max-chars},{NW}},#{@tmux-orchestrator-name-max-chars},{NW}}/…:@agent_{I}_name},#{=/{NW}:@agent_{I}_name}}}
+name_more=#{?#{&&:#{&&:#{!:{NOWRAP}},#{!:{FIXED}}},#{&&:#{!=:#{s/^#{=/{OFF}:@tmux-orchestrator-dots}//:@agent_{I}_name},},#{!=:#{s/^#{=/{OFF}:@tmux-orchestrator-dots}//:@agent_{I}_name},#{@agent_{I}_name}}}},#[range=user|#{pane_id}:{I}]  #[fg=default]#{?{FOCUS},#[bold],}#{={CUT}:#{s/^#{=/{OFF}:@tmux-orchestrator-dots}//:@agent_{I}_name}}#[nobold norange list=on default]#[nl],}
+agent_row=#{?#{@agent_{I}_kind},#[range=user|#{pane_id}:{I} #{?{FOCUS},list=focus,}]{ICON:@agent_{I}_state} #[fg=default]#{?{FOCUS},#[bold],}{NAME_FIRST}#[nobold norange list=on default]#[nl]{NAME_MORE}#[range=user|#{pane_id}:{I}]  #[fg=colour8]#{@agent_{I}_kind}#{?#{&&:#{@agent_{I}_since},#{!=:#{@tmux-orchestrator-time},off}},#[align=right]#{t/r:@agent_{I}_since} #[align=left],}#[norange list=on default]#[nl],}
 more_row=#{?#{@agent_more_n},#[range=user|#{pane_id}:+]{ICON:@agent_more_state} #[fg=default]+#{@agent_more_n} more#[norange list=on default]#[nl],}
-layout=Sessions#[nl]#[list=on]#{S:#{?#{>:#{@agent_count},0},#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[fg=green]▸,#[fg=default] }{ICON:@agent_rollup} #[fg=default]#{=/#{e|-:#{side-status-width},#{e|+:9,#{?#{@agent_waiting_w},#{@agent_waiting_w},0}}}/…:session_name} #{?#{@agent_blocked_n},#[fg=red]●#{@agent_blocked_n} ,}#{?#{@agent_error_n},#[fg=red]×#{@agent_error_n} ,}#{?#{@agent_done_n},#[fg=colour37]✓#{@agent_done_n} ,}#[fg=colour8]#{@agent_count}#[norange list=on default]#[nl],}}#[nolist]#[nl]Agents#[nl]#[list=on]#{S:#{?#{==:#{session_name},#{client_session}},#{W:#{P:#{?#{@agent_n},{AGENT_ROWS}{MORE_ROW},}}},}}#[nolist]#{S:#{?#{==:#{session_name},#{client_session}},#{?#{||:#{==:#{@agent_count},0},#{!:#{@agent_count}}},#[fg=colour8]no agents in this session#[nl],},}}
+layout=Sessions#[nl]#[list=on]#{S:#{?#{>:#{@agent_count},0},#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[fg=green]▸,#[fg=default] }{ICON:@agent_rollup} #[fg=default]#{=/#{e|-:#{side-status-width},#{e|+:9,#{?#{@agent_waiting_w},#{@agent_waiting_w},0}}}/…:session_name} #{?#{@agent_blocked_n},#[fg=red]●#{@agent_blocked_n} ,}#{?#{@agent_error_n},#[fg=red]×#{@agent_error_n} ,}#{?#{@agent_done_n},#[fg=colour37]✓#{@agent_done_n} ,}#[fg=colour8]#{@agent_count}#[norange list=on default]#[nl],}}#[nolist]#[nl]Agents#[nl]#[list=on]#{S:#{?#{==:#{session_name},#{client_session}},#{W:#{P:#{?#{@agent_n},{AGENT_ROWS}{MORE_ROW},}}},}}#[nolist]#{S:#{?#{==:#{session_name},#{client_session}},#{?#{||:#{==:#{@agent_count},0},#{!:#{@agent_count}}},#[fg=colour8]no agents in this session#[nl],},}}#[nl]#[align=right]#[range=user|keys]? keys#[norange]#[align=left default]#[nl]#{?#{==:#{@tmux-orchestrator-keys},1},#{@tmux-orchestrator-keys-list},}

@@ -75,23 +75,52 @@ assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_name_raw)" installed
 [[ ! -e $DEST && ! -L $DEST ]] || fail 'adapter link still installed'
 assert_eq "$(cat "$CONFIG")" "$BEFORE"
 
-# With the option on, each plugin load links the adapter to the copy loaded.
+# By default each plugin load links the adapter to the loaded copy, but only
+# when OpenCode is detected.
 COPY="$HOME_TMP/second-copy"
 mkdir -p "$COPY"
 cp -R "$ROOT/tmux-orchestrator.tmux" "$ROOT/bin" "$ROOT/lib" "$ROOT/plugins" "$COPY/"
-tmux -L "$S" set-option -g @tmux-orchestrator-opencode on
-HOME=$HOME_TMP "$ROOT/tmux-orchestrator.tmux"
+NOPATH="$HOME_TMP/nopath"
+STUBPATH="$HOME_TMP/stubpath"
+mkdir -p "$NOPATH" "$STUBPATH"
+for cmd in bash tmux dirname cat ln rm mkdir readlink; do
+	ln -s "$(command -v "$cmd")" "$NOPATH/$cmd"
+	ln -s "$(command -v "$cmd")" "$STUBPATH/$cmd"
+done
+printf '#!/bin/sh\n' >"$STUBPATH/opencode"
+chmod +x "$STUBPATH/opencode"
+
+# Detected through the config directory.
+HOME=$HOME_TMP PATH=$NOPATH "$ROOT/tmux-orchestrator.tmux"
 assert_eq "$(readlink "$DEST")" "$ROOT/plugins/opencode"
-HOME=$HOME_TMP "$COPY/tmux-orchestrator.tmux"
+HOME=$HOME_TMP PATH=$NOPATH "$COPY/tmux-orchestrator.tmux"
 assert_eq "$(readlink "$DEST")" "$COPY/plugins/opencode"
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-reporter)" "$COPY/bin/tmux-orchestrator"
-tmux -L "$S" set-option -gu @tmux-orchestrator-opencode
+
+# Off leaves an existing link as it is.
+tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
+HOME=$HOME_TMP PATH=$NOPATH "$ROOT/tmux-orchestrator.tmux"
+assert_eq "$(readlink "$DEST")" "$COPY/plugins/opencode"
+tmux -L "$S" set-option -gu @tmux-orchestrator-opencode-auto-install
 "$BIN" uninstall opencode --home "$HOME_TMP" >/dev/null
+
+# Detected through opencode on PATH, without a config directory.
+BARE="$HOME_TMP/bare-home"
+mkdir -p "$BARE"
+HOME=$BARE PATH=$STUBPATH "$ROOT/tmux-orchestrator.tmux"
+assert_eq "$(readlink "$BARE/.config/opencode/plugins/tmux-orchestrator")" "$ROOT/plugins/opencode"
+rm -rf "$BARE"
+
+# Not detected: nothing is created.
+mkdir -p "$BARE"
+HOME=$BARE PATH=$NOPATH "$ROOT/tmux-orchestrator.tmux"
+[[ ! -e $BARE/.config ]] || fail 'OpenCode directory created without OpenCode'
+rm -rf "$BARE"
 
 # Cleanup leaves other plugin hooks alone and removes only ours.
 tmux -L "$S" new-session -d -s alpha -n main -x 100 -y 40 'sleep 300'
 P=$(tmux -L "$S" display -p -t alpha:main.0 '#{pane_id}')
-"$ROOT/tmux-orchestrator.tmux"
+HOME=$HOME_TMP "$ROOT/tmux-orchestrator.tmux"
 tmux -L "$S" set-hook -g 'after-select-pane[91]' 'display-message other-plugin'
 report_state "$P" working agent claude s0
 [[ $(tmux -L "$S" show-options -pv -t "$P" @agent_1_state) == working ]] || fail 'setup state'

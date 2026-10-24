@@ -8,6 +8,14 @@ Glossary for the tmux-native agent orchestrator: a persistent view of agents run
 An agent session open in a tmux pane, whose state this project tracks. A Claude Code pane holds one agent; an OpenCode pane holds one per tab. Subagents are not agents: their activity counts toward the agent that started them.
 _Avoid_: worker, bot, process
 
+**Agent name**:
+The label shown for an agent: its agent session's title, or the working-directory name when there is no title.
+_Avoid_: title, label
+
+**Focused agent**:
+The agent a client is looking at: the one in the pane it views, and for OpenCode the one in that pane's active tab. At most one per client.
+_Avoid_: selected agent, current agent, active agent
+
 **Agent kind**:
 The product an agent belongs to: Claude Code or OpenCode.
 _Avoid_: agent type, agent name
@@ -41,7 +49,7 @@ A user-facing message emitted when an agent enters `blocked`, `error`, or `done`
 _Avoid_: alert (a tmux alert is a different mechanism)
 
 **Notification channel**:
-A delivery path for agent notifications: the tmux status line or the desktop.
+A delivery path for agent notifications: tmux clients, the terminal emulator, or the desktop notifier. Each is turned on or off on its own.
 _Avoid_: transport, backend
 
 **Notification pause**:
@@ -51,3 +59,7 @@ _Avoid_: mute, disable (those change channel configuration)
 **Sidebar**:
 The persistent vertical area drawn by tmux's side status line, listing tmux sessions and their agents.
 _Avoid_: panel, sidebar pane, area
+
+**Keys panel**:
+A part of the sidebar, opened and closed by a click, that lists the configurable key bindings acting on the orchestrator.
+_Avoid_: help, cheatsheet, legend
