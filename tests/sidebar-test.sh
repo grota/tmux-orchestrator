@@ -180,4 +180,13 @@ tmux -L "$S" set-option -g @tmux-orchestrator-side left
 "$ROOT/tmux-orchestrator.tmux"
 [[ $(tmux -L "$S" show-options -gv side-status) == left ]] || fail 'left side not restored'
 
+# The time in state can be hidden without reloading the plugin.
+tmux -L "$S" set-option -g @tmux-orchestrator-time off
+NOTIME_LOG="/tmp/tmux-orchestrator-sidebar-notime-$$.log"
+(env -u TMUX TERM=xterm-256color timeout 3 script -qefc "stty rows 60 cols 120; tmux -L $S attach -t alpha" "$NOTIME_LOG" >/dev/null 2>&1) &
+sleep 1
+assert_contains "$NOTIME_LOG" 'fix-login'
+! grep -aEq '[0-9]+s' "$NOTIME_LOG" || fail 'time in state shown while off'
+rm -f "$NOTIME_LOG"
+
 printf 'sidebar tests passed\n'

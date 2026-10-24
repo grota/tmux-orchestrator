@@ -112,7 +112,8 @@ Rows:
 - An agent takes two lines. The first shows the state icon, the agent name,
   and how long the agent has been in that state (`45s`, `3m12s`, `1h4m`),
   right-aligned. The second shows the kind (`claude` or `opencode`). Long names
-  are truncated with `…`.
+  are truncated with `…`. `set -g @tmux-orchestrator-time off` hides the time
+  at once, with no reload.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
