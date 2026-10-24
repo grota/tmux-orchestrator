@@ -290,21 +290,21 @@ clear_pane() {
 
 # "BLOCKED ERROR DONE": how many of the given states need the user.
 waiting_counts() {
-	local state blocked=0 error=0 done=0
+	local state blocked=0 error=0 finished=0
 	for state in "$@"; do
 		case "$state" in
 		blocked) blocked=$((blocked + 1)) ;;
 		error) error=$((error + 1)) ;;
-		done) done=$((done + 1)) ;;
+		done) finished=$((finished + 1)) ;;
 		esac
 	done
-	printf '%s %s %s' "$blocked" "$error" "$done"
+	printf '%s %s %s' "$blocked" "$error" "$finished"
 }
 
 # Session totals.  @agent_waiting_w is the width the waiting counts take on the
 # session row, so the session name is truncated to leave room for them.
 recompute_session() {
-	local sid=$1 n rollup waiting count=0 states=() b e d blocked=0 error=0 done=0 width=0 name value
+	local sid=$1 n rollup waiting count=0 states=() b e d blocked=0 error=0 finished=0 width=0 name value
 	while IFS=$US read -r n rollup waiting; do
 		[[ $n =~ ^[0-9]+$ ]] || continue
 		((n > 0)) || continue
@@ -312,7 +312,7 @@ recompute_session() {
 		states+=("$rollup")
 		read -r b e d <<<"$waiting"
 		[[ $b$e$d =~ ^[0-9]+$ ]] || continue
-		blocked=$((blocked + b)) error=$((error + e)) done=$((done + d))
+		blocked=$((blocked + b)) error=$((error + e)) finished=$((finished + d))
 	done < <(tmux_do list-panes -s -t "$sid" -F "#{@agent_n}$US#{@agent_pane_rollup}$US#{@agent_pane_waiting}" || true)
 	queue set-option -t "$sid" @agent_count "$count"
 	if ((count == 0)); then
@@ -321,7 +321,9 @@ recompute_session() {
 		queue set-option -t "$sid" @agent_rollup "$(agent_rollup "${states[@]}")"
 	fi
 	for name in blocked error done; do
-		value=${!name}
+		value=$blocked
+		[[ $name == error ]] && value=$error
+		[[ $name == done ]] && value=$finished
 		if ((value > 0)); then
 			queue set-option -t "$sid" "@agent_${name}_n" "$value"
 			width=$((width + ${#value} + 2))
@@ -515,6 +517,9 @@ report_event() {
 		after_pane_change "$pane"
 		return 0
 	fi
+
+	# A new Claude session in the pane starts its own time in state.
+	[[ $kind == claude && -n $i && -n $sid && ${SID[i]-} != "$sid" ]] && SINCE[i]=''
 
 	# An event that changes no state never creates an agent.
 	if [[ -z $i ]]; then
@@ -862,7 +867,8 @@ toggle_sidebar() {
 notify_terminal() {
 	local summary tty
 	summary="$(state_icon "$2") Agent $2: $1"
-	tty=$(tmux_do list-clients -F '#{client_activity} #{client_tty}' | sort -rn | head -n 1)
+	# Control-mode clients speak a line protocol on their tty, so skip them.
+	tty=$(tmux_do list-clients -f '#{!=:#{client_control_mode},1}' -F '#{client_activity} #{client_tty}' | sort -rn | head -n 1)
 	tty=${tty#* }
 	[[ -n $tty && -w $tty ]] || return 0
 	printf '\033]9;%s\007' "$summary" >"$tty" 2>/dev/null || true
@@ -889,7 +895,7 @@ notify_status() {
 }
 
 cleanup_all() {
-	local pane sid hook
+	local pane sid hook name
 	while IFS= read -r pane; do
 		[[ -n $pane ]] || continue
 		clear_pane "$pane"
@@ -897,8 +903,9 @@ cleanup_all() {
 	done < <(tmux_do list-panes -a -F '#{pane_id}' || true)
 	while IFS= read -r sid; do
 		[[ -n $sid ]] || continue
-		unset_session_opt "$sid" @agent_count
-		unset_session_opt "$sid" @agent_rollup
+		for name in @agent_count @agent_rollup @agent_blocked_n @agent_error_n @agent_done_n @agent_waiting_w; do
+			unset_session_opt "$sid" "$name"
+		done
 	done < <(tmux_do list-sessions -F '#{session_id}' || true)
 	for hook in 'after-select-pane[90]' 'after-select-window[90]' \
 		'client-session-changed[90]' 'session-closed[90]'; do

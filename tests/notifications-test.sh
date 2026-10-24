@@ -220,6 +220,18 @@ sleep 0.3
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 ! grep -aFq $'\e]9;● Agent blocked: none-agent' "$CLIENT_LOG" || fail 'via none still notified'
 "$BIN" notify status | grep -q 'via: none' || fail 'status hid via'
+
+# A control-mode client gets no OSC 9 even when it is the most recently active.
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-via terminal
+CTL_LOG="/tmp/tmux-orchestrator-control-$$.log"
+(sleep 3 | tmux -L "$S" -C attach -t alpha >"$CTL_LOG" 2>&1) &
+sleep 0.5
+report_state "$P0" working control-agent claude s0
+report_state "$P0" blocked control-agent claude s0
+sleep 0.3
+! grep -aFq $'\e]9;' "$CTL_LOG" || fail 'OSC 9 sent to a control-mode client'
+assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: control-agent\a'
+rm -f "$CTL_LOG"
 tmux -L "$S" set-option -gu @tmux-orchestrator-notify-via
 
 # Pause is idempotent and survives a plugin reload.

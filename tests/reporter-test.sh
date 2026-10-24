@@ -328,12 +328,18 @@ tmux -L "$S" set-option -t alpha @agent_rollup idle
 "$BIN" reconcile
 assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_rollup)" blocked
 
-# cleanup leaves no agent option.
+# A new Claude session in the pane starts its own time in state.
 report_state "$P0" working alpha-one claude s0
+tmux -L "$S" set-option -p -t "$P0" @agent_1_since 100
+"$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --session-id s-new
+[[ $(opt "$P0" @agent_1_since) -gt 100 ]] || fail 'new session kept the old time in state'
+
+# cleanup leaves no agent option.
+report_state "$P0" blocked alpha-one claude s0
 tmux -L "$S" set-option -p -t "$P1" @agent_extra old
 "$BIN" cleanup
 LEFT=$(for p in $(tmux -L "$S" list-panes -a -F '#{pane_id}'); do tmux -L "$S" show-options -p -t "$p"; done | grep -c '^@agent_' || true)
 assert_eq "$LEFT" 0
-assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_count 2>/dev/null || true)" ''
+assert_eq "$(tmux -L "$S" show-options -t alpha | grep -c '^@agent_' || true)" 0
 
 printf 'reporter tests passed\n'
