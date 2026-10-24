@@ -80,10 +80,9 @@ without the option, run:
 tmux-orchestrator install opencode
 ```
 
-`tmux-orchestrator uninstall opencode` removes the link. Both commands also delete
-`~/.config/opencode/plugins/tmux-orchestrator.js` and the copied adapter of
-earlier versions. They leave alone any path at that location that this project
-did not create.
+`tmux-orchestrator uninstall opencode` removes the link. Both commands leave
+alone any path at that location that is not a link to a `plugins/opencode`
+directory.
 
 ## Sidebar
 
@@ -212,8 +211,12 @@ The plugin forwards these hooks to the reporter, which maps them:
 | `SessionEnd`                                           | removed                             |
 
 Subagent tool calls and permission requests count toward the main agent. A
-subagent never starts, completes or ends it. `PostToolUseFailure` is not treated
-as an agent error. A `Stop` after an `error` keeps `error` until new activity.
+subagent never starts, completes or ends it. While the main agent or a subagent
+waits for the user, the agent stays `blocked` until that same one calls a tool
+again, a subagent that waits ends (`SubagentStop`), or a new turn starts.
+`PostToolUseFailure` is not treated as an agent error; it only ends that one's
+wait. Parallel tool calls of the same agent cannot be told apart, so one of them
+finishing clears a wait raised by another. A `Stop` after an `error` keeps `error` until new activity.
 
 Claude Code sends no hook when you interrupt a turn with Esc. While a turn runs,
 a background watcher reads the new lines of the session transcript every 3
@@ -260,7 +263,8 @@ The tab's session title is the agent name. Without a title, the working-director
 basename is used.
 
 Clicking a tab's row focuses that tab. The reporter sends the request over a
-Unix socket that the TUI opens in `/tmp/tmux-orchestrator-<uid>/`.
+Unix socket that the TUI opens in `tmux-orchestrator-<uid>/` under
+`$XDG_RUNTIME_DIR`, or under the system temporary directory when it is unset.
 
 ## Maintenance
 

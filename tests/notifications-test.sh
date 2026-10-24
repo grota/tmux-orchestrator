@@ -60,7 +60,7 @@ assert_contains "$NOTIFY_LOG" '● Agent blocked: evil#[fg=red] line'
 ! grep -q 'claude\|s0' "$NOTIFY_LOG" || fail 'notification leaked kind or location'
 
 # A client viewing the agent suppresses both channels.
-(env -u TMUX TERM=xterm-256color timeout 8 script -qefc "tmux -L $S attach -t alpha" "$CLIENT_LOG" >/dev/null 2>&1) &
+(env -u TMUX TERM=xterm-256color timeout 60 script -qefc "tmux -L $S attach -t alpha" "$CLIENT_LOG" >/dev/null 2>&1) &
 CLIENT_PID=$!
 sleep 0.8
 tmux -L "$S" select-window -t alpha:main
@@ -81,7 +81,7 @@ assert_contains "$CLIENT_LOG" '● fix-login blocked'
 
 # With two clients, one viewing suppresses desktop but the other still gets tmux.
 tmux -L "$S" select-pane -t "$P0"
-(env -u TMUX TERM=xterm-256color timeout 8 script -qefc "tmux -L $S attach -t beta" "$CLIENT_LOG.2" >/dev/null 2>&1) &
+(env -u TMUX TERM=xterm-256color timeout 60 script -qefc "tmux -L $S attach -t beta" "$CLIENT_LOG.2" >/dev/null 2>&1) &
 CLIENT2_PID=$!
 for _ in $(seq 1 30); do
 	[[ $(tmux -L "$S" list-clients -F '#{client_session}' | grep -c '^beta$' || true) == 1 ]] && break

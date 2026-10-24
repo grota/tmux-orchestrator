@@ -56,9 +56,9 @@ fi
 
 # Assemble the sidebar from lib/sidebar-format: one icon fragment for every
 # state, one agent row repeated per slot, and the overflow row (ADR-0004).
-VISIBLE_SLOTS=9
 while IFS= read -r line; do
 	case "$line" in
+	slots=*) VISIBLE_SLOTS=${line#slots=} ;;
 	icon=*) FMT_ICON=${line#icon=} ;;
 	agent_row=*) FMT_AGENT_ROW=${line#agent_row=} ;;
 	more_row=*) FMT_MORE_ROW=${line#more_row=} ;;

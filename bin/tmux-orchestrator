@@ -19,10 +19,15 @@ fi
 # adapters call change incompatibly.
 PROTOCOL=1
 
-# Agents past this slot are shown as one overflow row (ADR-0004).
+# Agents past this slot are shown as one overflow row (ADR-0004).  The sidebar
+# format holds the number, so both sides agree.
 VISIBLE_SLOTS=9
+while IFS= read -r line; do
+	[[ $line == slots=* ]] && VISIBLE_SLOTS=${line#slots=}
+done <"$ROOT_DIR/lib/sidebar-format"
 SLOT_FIELDS='sid kind state name name_raw event notified_at'
 US=$'\x1f'
+RS=$'\x1e'
 
 tmux_do() {
 	"${TMUX[@]}" "$@" 2>/dev/null
@@ -30,6 +35,26 @@ tmux_do() {
 
 tmux_ok() {
 	tmux_do "$@" >/dev/null 2>&1
+}
+
+# Writes are queued and sent as one tmux call, which stops at the first failing
+# command, so a batch holds the writes of one pane or one session.
+BATCH=()
+
+# tmux ends a command at an argument ending in ";", so that ";" is escaped.
+queue() {
+	local arg
+	for arg in "$@"; do
+		[[ $arg == *';' ]] && arg="${arg%;}\\;"
+		BATCH+=("$arg")
+	done
+	BATCH+=(';')
+}
+
+flush() {
+	((${#BATCH[@]})) || return 0
+	tmux_ok "${BATCH[@]}"
+	BATCH=()
 }
 
 get_global() {
@@ -46,10 +71,6 @@ set_pane_opt() {
 
 unset_pane_opt() {
 	tmux_ok set-option -pu -t "$1" "$2"
-}
-
-set_session_opt() {
-	tmux_ok set-option -t "$1" "$2" "$3"
 }
 
 unset_session_opt() {
@@ -119,7 +140,9 @@ pane_session() {
 # load_pane fills these globals; store_pane writes them back.
 
 N=0
+LOADED_N=0
 ACTIVE=''
+WAITERS=''
 SID=()
 KIND=()
 STATE=()
@@ -128,42 +151,47 @@ EVENT=()
 NOTIFIED=()
 
 load_pane() {
-	local pane=$1 i line
+	local pane=$1 i format
 	SID=()
 	KIND=()
 	STATE=()
 	RAW=()
 	EVENT=()
 	NOTIFIED=()
-	N=$(get_pane_opt "$pane" @agent_n)
+	IFS=$US read -r N ACTIVE WAITERS <<<"$(tmux_do display-message -p -t "$pane" \
+		"#{@agent_n}$US#{@agent_active}$US#{@agent_1_waiters}" || true)"
 	[[ $N =~ ^[0-9]+$ ]] || N=0
-	ACTIVE=$(get_pane_opt "$pane" @agent_active)
+	LOADED_N=$N
+	((N > 0)) || return 0
+	format=''
 	for ((i = 1; i <= N; i++)); do
-		line=$(tmux_do display-message -p -t "$pane" \
-			"#{@agent_${i}_sid}$US#{@agent_${i}_kind}$US#{@agent_${i}_state}$US#{@agent_${i}_name_raw}$US#{@agent_${i}_event}$US#{@agent_${i}_notified_at}" || true)
-		IFS=$US read -r SID[i] KIND[i] STATE[i] RAW[i] EVENT[i] NOTIFIED[i] <<<"$line"
+		format+="#{@agent_${i}_sid}$US#{@agent_${i}_kind}$US#{@agent_${i}_state}$US#{@agent_${i}_name_raw}$US#{@agent_${i}_event}$US#{@agent_${i}_notified_at}$RS"
 	done
+	i=1
+	while IFS=$US read -r -d "$RS" SID[i] KIND[i] STATE[i] RAW[i] EVENT[i] NOTIFIED[i]; do
+		i=$((i + 1))
+	done <<<"$(tmux_do display-message -p -t "$pane" "$format" || true)"
 }
 
 write_slot() {
 	local pane=$1 i=$2
-	set_pane_opt "$pane" "@agent_${i}_sid" "${SID[i]-}"
-	set_pane_opt "$pane" "@agent_${i}_kind" "${KIND[i]-}"
-	set_pane_opt "$pane" "@agent_${i}_state" "$(agent_valid_state "${STATE[i]-}")"
-	set_pane_opt "$pane" "@agent_${i}_name" "$(escape_hash "${RAW[i]-}")"
-	set_pane_opt "$pane" "@agent_${i}_name_raw" "${RAW[i]-}"
-	set_pane_opt "$pane" "@agent_${i}_event" "${EVENT[i]-}"
+	queue set-option -p -t "$pane" "@agent_${i}_sid" "${SID[i]-}"
+	queue set-option -p -t "$pane" "@agent_${i}_kind" "${KIND[i]-}"
+	queue set-option -p -t "$pane" "@agent_${i}_state" "$(agent_valid_state "${STATE[i]-}")"
+	queue set-option -p -t "$pane" "@agent_${i}_name" "$(escape_hash "${RAW[i]-}")"
+	queue set-option -p -t "$pane" "@agent_${i}_name_raw" "${RAW[i]-}"
+	queue set-option -p -t "$pane" "@agent_${i}_event" "${EVENT[i]-}"
 	if [[ -n ${NOTIFIED[i]-} ]]; then
-		set_pane_opt "$pane" "@agent_${i}_notified_at" "${NOTIFIED[i]}"
+		queue set-option -p -t "$pane" "@agent_${i}_notified_at" "${NOTIFIED[i]}"
 	else
-		unset_pane_opt "$pane" "@agent_${i}_notified_at"
+		queue set-option -pu -t "$pane" "@agent_${i}_notified_at"
 	fi
 }
 
 clear_slot() {
 	local pane=$1 i=$2 field
 	for field in $SLOT_FIELDS; do
-		unset_pane_opt "$pane" "@agent_${i}_${field}"
+		queue set-option -pu -t "$pane" "@agent_${i}_${field}"
 	done
 }
 
@@ -178,30 +206,28 @@ write_pane_summary() {
 		clear_pane "$pane"
 		return 0
 	fi
-	set_pane_opt "$pane" @agent_n "$N"
-	set_pane_opt "$pane" @agent_pane_rollup "$(agent_rollup "${states[@]}")"
+	queue set-option -p -t "$pane" @agent_n "$N"
+	queue set-option -p -t "$pane" @agent_pane_rollup "$(agent_rollup "${states[@]}")"
 	if ((${#extra[@]} > 0)); then
-		set_pane_opt "$pane" @agent_more_n "${#extra[@]}"
-		set_pane_opt "$pane" @agent_more_state "$(agent_rollup "${extra[@]}")"
+		queue set-option -p -t "$pane" @agent_more_n "${#extra[@]}"
+		queue set-option -p -t "$pane" @agent_more_state "$(agent_rollup "${extra[@]}")"
 	else
-		unset_pane_opt "$pane" @agent_more_n
-		unset_pane_opt "$pane" @agent_more_state
+		queue set-option -pu -t "$pane" @agent_more_n
+		queue set-option -pu -t "$pane" @agent_more_state
 	fi
 	if [[ ! $ACTIVE =~ ^[0-9]+$ ]] || ((ACTIVE < 1 || ACTIVE > N)); then
 		ACTIVE=1
 	fi
-	set_pane_opt "$pane" @agent_active "$ACTIVE"
+	queue set-option -p -t "$pane" @agent_active "$ACTIVE"
 }
 
 # Rewrite every slot after slots were added, removed or reordered.
 store_pane() {
-	local pane=$1 old_n i
-	old_n=$(get_pane_opt "$pane" @agent_n)
-	[[ $old_n =~ ^[0-9]+$ ]] || old_n=0
+	local pane=$1 i
 	for ((i = 1; i <= N; i++)); do
 		write_slot "$pane" "$i"
 	done
-	for ((i = N + 1; i <= old_n; i++)); do
+	for ((i = N + 1; i <= LOADED_N; i++)); do
 		clear_slot "$pane" "$i"
 	done
 	write_pane_summary "$pane"
@@ -243,7 +269,7 @@ find_slot() {
 clear_pane() {
 	local pane=$1 name _
 	while read -r name _; do
-		[[ $name == @agent_* ]] && unset_pane_opt "$pane" "$name"
+		[[ $name == @agent_* ]] && queue set-option -pu -t "$pane" "$name"
 	done < <(tmux_do show-options -p -t "$pane" || true)
 }
 
@@ -255,16 +281,19 @@ recompute_session() {
 		count=$((count + n))
 		states+=("$rollup")
 	done < <(tmux_do list-panes -s -t "$sid" -F "#{@agent_n}$US#{@agent_pane_rollup}" || true)
-	set_session_opt "$sid" @agent_count "$count"
+	queue set-option -t "$sid" @agent_count "$count"
 	if ((count == 0)); then
-		unset_session_opt "$sid" @agent_rollup
+		queue set-option -u -t "$sid" @agent_rollup
 	else
-		set_session_opt "$sid" @agent_rollup "$(agent_rollup "${states[@]}")"
+		queue set-option -t "$sid" @agent_rollup "$(agent_rollup "${states[@]}")"
 	fi
+	flush
 }
 
+# Send the pane's queued writes, then update its session and redraw.
 after_pane_change() {
 	local pane=$1 session
+	flush
 	session=$(pane_session "$pane")
 	[[ -n $session ]] && recompute_session "$session"
 	refresh_clients
@@ -292,6 +321,16 @@ client_views() {
 	local cpane=$1 pane=$2 slot=$3
 	[[ $cpane == "$pane" ]] || return 1
 	[[ $(viewed_slot "$pane") == "$slot" ]]
+}
+
+# The configured channel; anything else means both.
+notify_channel() {
+	local channel
+	channel=$(get_global @tmux-orchestrator-notify)
+	case "$channel" in
+	both | tmux | desktop | off) printf '%s' "$channel" ;;
+	*) printf both ;;
+	esac
 }
 
 desktop_command() {
@@ -329,12 +368,7 @@ notify_agent() {
 	paused=$(get_global @tmux-orchestrator-notify-paused)
 	[[ $paused == 1 ]] && return 0
 
-	channel=$(get_global @tmux-orchestrator-notify)
-	[[ -n $channel ]] || channel=both
-	case "$channel" in
-	both | tmux | desktop | off) ;;
-	*) channel=both ;;
-	esac
+	channel=$(notify_channel)
 	[[ $channel == off ]] && return 0
 
 	icon=$(state_icon "$state")
@@ -395,8 +429,8 @@ event_label() {
 }
 
 report_event() {
-	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 transcript=${9-}
-	local i result verb next notify raw
+	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 transcript=${9-} actor=${10-}
+	local i verb next notify raw waiters='' waiting=0
 
 	[[ -n $pane && -n $kind && -n $event ]] || return 0
 	load_pane "$pane"
@@ -411,7 +445,14 @@ report_event() {
 		((N > 0)) || i=''
 	fi
 
-	read -r verb next notify <<<"$(agent_transition "${i:+${STATE[i]-}}" "$kind" "$event" "$detail")"
+	# A Claude agent stays blocked while any of its actors (main or a subagent)
+	# still waits for the user.
+	if [[ $kind == claude ]]; then
+		waiters=$(agent_waiters "$WAITERS" "$kind" "$event" "$detail" "$actor")
+		[[ -n $waiters ]] && waiting=1
+	fi
+
+	read -r verb next notify <<<"$(agent_transition "${i:+${STATE[i]-}}" "$kind" "$event" "$detail" "$waiting")"
 
 	if [[ $verb == forget ]]; then
 		[[ -n $i ]] || return 0
@@ -443,6 +484,13 @@ report_event() {
 
 	write_slot "$pane" "$i"
 	write_pane_summary "$pane"
+	if [[ $kind == claude && $waiters != "$WAITERS" ]]; then
+		if [[ -n $waiters ]]; then
+			queue set-option -p -t "$pane" @agent_1_waiters "$waiters"
+		else
+			queue set-option -pu -t "$pane" @agent_1_waiters
+		fi
+	fi
 	after_pane_change "$pane"
 
 	[[ $verb == set && $notify == 1 ]] && notify_agent "$pane" "$i" "$next"
@@ -515,7 +563,7 @@ watch_interrupt() {
 			while IFS= read -r line; do
 				if [[ $line == *"$INTERRUPT_MARKER"* && $line != *'"isSidechain":true'* ]]; then
 					unset_pane_opt "$pane" @agent_1_watch
-					report_event "$pane" claude Interrupted '' '' '' '' 0
+					report_event "$pane" claude Interrupted '' '' '' '' 0 '' main
 					return 0
 				fi
 			done <<<"$complete"
@@ -640,28 +688,15 @@ refresh_name() {
 
 # --- tmux-side commands ---------------------------------------------------------
 
-# Pane options of the older single-agent layout, and an earlier pane-level
-# @agent_rollup that shadowed the session rollup.
-LEGACY_PANE_OPTIONS='@agent_state @agent_name @agent_name_raw @agent_kind @agent_session @agent_notified_at @agent_rollup'
-
-clear_legacy() {
-	local pane=$1 name _ legacy
-	while read -r name _; do
-		for legacy in $LEGACY_PANE_OPTIONS; do
-			[[ $name == "$legacy" ]] && unset_pane_opt "$pane" "$name"
-		done
-	done < <(tmux_do show-options -p -t "$pane" || true)
-}
-
 reconcile() {
 	local sid pane n
 	while read -r pane n; do
 		[[ -n $pane ]] || continue
-		clear_legacy "$pane"
 		# Rebuild the pane summary from its slots.
 		if [[ $n =~ ^[0-9]+$ ]] && ((n > 0)); then
 			load_pane "$pane"
 			write_pane_summary "$pane"
+			flush
 		fi
 	done < <(tmux_do list-panes -a -F '#{pane_id} #{@agent_n}' || true)
 	while IFS= read -r sid; do
@@ -672,21 +707,19 @@ reconcile() {
 
 # Clear done for the agent each client is viewing.
 focus_agents() {
-	local client pane slot sid verb next notify changed
+	local client pane slot verb next notify
 	while IFS=' ' read -r client pane; do
 		[[ -n $pane ]] || continue
-		slot=$(viewed_slot "$pane")
-		[[ -n $slot ]] || continue
-		read -r verb next notify <<<"$(agent_transition "$(get_pane_opt "$pane" "@agent_${slot}_state")" tmux viewed)"
-		[[ $verb == set ]] || continue
-		changed=0
-		[[ $(get_pane_opt "$pane" "@agent_${slot}_state") != "$next" ]] && changed=1
-		((changed)) || continue
-		set_pane_opt "$pane" "@agent_${slot}_state" "$next"
 		load_pane "$pane"
+		((N > 0)) || continue
+		slot=$ACTIVE
+		[[ $slot =~ ^[0-9]+$ ]] && ((slot >= 1 && slot <= N)) || slot=1
+		read -r verb next notify <<<"$(agent_transition "${STATE[slot]-}" tmux viewed)"
+		[[ $verb == set && $next != "${STATE[slot]-}" ]] || continue
+		STATE[slot]=$next
+		queue set-option -p -t "$pane" "@agent_${slot}_state" "$next"
 		write_pane_summary "$pane"
-		sid=$(pane_session "$pane")
-		[[ -n $sid ]] && recompute_session "$sid"
+		after_pane_change "$pane"
 	done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
 	refresh_clients
 }
@@ -734,13 +767,13 @@ select_agent() {
 }
 
 gc() {
-	local pane dead n kind
-	while read -r pane dead n kind; do
+	local pane dead n
+	while read -r pane dead n; do
 		[[ -n $pane ]] || continue
-		if [[ $dead == 1 ]] && [[ -n $n || -n $kind ]]; then
+		if [[ $dead == 1 && -n $n ]]; then
 			remove_pane "$pane"
 		fi
-	done < <(tmux_do list-panes -a -F '#{pane_id} #{pane_dead} #{@agent_n} #{@agent_kind}' || true)
+	done < <(tmux_do list-panes -a -F '#{pane_id} #{pane_dead} #{@agent_n}' || true)
 	reconcile
 }
 
@@ -762,11 +795,7 @@ toggle_sidebar() {
 
 notify_status() {
 	local channel paused desktop
-	channel=$(get_global @tmux-orchestrator-notify)
-	case "$channel" in
-	both | tmux | desktop | off) ;;
-	*) channel=both ;;
-	esac
+	channel=$(notify_channel)
 	paused=$(get_global @tmux-orchestrator-notify-paused)
 	desktop=$(desktop_command)
 	if [[ $channel == off ]]; then
@@ -786,7 +815,9 @@ notify_status() {
 cleanup_all() {
 	local pane sid hook
 	while IFS= read -r pane; do
-		[[ -n $pane ]] && clear_pane "$pane"
+		[[ -n $pane ]] || continue
+		clear_pane "$pane"
+		flush
 	done < <(tmux_do list-panes -a -F '#{pane_id}' || true)
 	while IFS= read -r sid; do
 		[[ -n $sid ]] || continue
@@ -804,26 +835,14 @@ cleanup_all() {
 }
 
 # The OpenCode adapter is a link to this copy's plugins/opencode, so updating or
-# switching the tmux plugin updates it too (ADR-0007).  Only paths this
-# project created are replaced: a link into a plugins/opencode directory, or
-# the directory holding a copied tui.js that earlier versions installed.
-OPENCODE_PLUGIN_ID=tmux-orchestrator.opencode
-
+# switching the tmux plugin updates it too (ADR-0007).  Only a link into a
+# plugins/opencode directory is ours to replace.
 opencode_path_is_ours() {
-	local dest=$1 target
-	if [[ -L $dest ]]; then
-		target=$(readlink -- "$dest")
-		[[ $target == */plugins/opencode ]]
-	elif [[ -d $dest ]]; then
-		[[ -f $dest/tui.js ]] && grep -q "$OPENCODE_PLUGIN_ID" "$dest/tui.js" 2>/dev/null &&
-			[[ $(find "$dest" -mindepth 1 -maxdepth 1 | wc -l | tr -d ' ') == 1 ]]
-	else
-		return 1
-	fi
+	[[ -L $1 && $(readlink -- "$1") == */plugins/opencode ]]
 }
 
 install_opencode() {
-	local home=${HOME} uninstall=0 quiet=0 src dest legacy
+	local home=${HOME} uninstall=0 quiet=0 src dest
 	while (($#)); do
 		case "$1" in
 		--home) home=$2; shift 2 ;;
@@ -833,20 +852,14 @@ install_opencode() {
 		esac
 	done
 	dest="$home/.config/opencode/plugins/tmux-orchestrator"
-	legacy="$home/.config/opencode/plugins/tmux-orchestrator.js"
 	src="$ROOT_DIR/plugins/opencode"
-	rm -f -- "$legacy"
 
 	if [[ -e $dest || -L $dest ]] && ! opencode_path_is_ours "$dest"; then
 		printf 'left untouched: %s was not created by tmux-orchestrator\n' "$dest" >&2
 		return 0
 	fi
 	if ((uninstall)); then
-		if [[ -L $dest ]]; then
-			rm -f -- "$dest"
-		elif [[ -d $dest ]]; then
-			rm -f -- "$dest/tui.js" && rmdir -- "$dest"
-		fi
+		rm -f -- "$dest"
 		((quiet)) || printf 'removed %s\n' "$dest"
 		return 0
 	fi
@@ -856,11 +869,7 @@ install_opencode() {
 	fi
 	# Already linked here: nothing to do.
 	[[ -L $dest && $(readlink -- "$dest") == "$src" ]] && return 0
-	if [[ -L $dest ]]; then
-		rm -f -- "$dest"
-	elif [[ -d $dest ]]; then
-		rm -f -- "$dest/tui.js" && rmdir -- "$dest"
-	fi
+	rm -f -- "$dest"
 	mkdir -p -- "$(dirname "$dest")"
 	ln -s -- "$src" "$dest"
 	((quiet)) || printf 'linked %s -> %s\n' "$dest" "$src"
@@ -887,7 +896,7 @@ usage: tmux-orchestrator <command>
 
   (adapter commands accept --protocol N; this reporter speaks protocol 1)
   report --pane ID --kind KIND --event EVENT [--detail D] [--session-id ID]
-         [--name NAME] [--cwd DIR] [--refresh] [--transcript PATH]
+         [--name NAME] [--cwd DIR] [--refresh] [--transcript PATH] [--agent ID]
   tabs --pane ID [--active ID] [--cwd DIR] [--tab ID STATUS TITLE]...
   remove --pane ID
   register --pane ID --socket PATH
@@ -919,7 +928,7 @@ main() {
 	esac
 	case "$command" in
 	report)
-		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 transcript=''
+		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 transcript='' agent=''
 		while (($#)); do
 			case "$1" in
 			--pane) pane=$2; shift 2 ;;
@@ -931,11 +940,12 @@ main() {
 			--cwd) cwd=$2; shift 2 ;;
 			--refresh) refresh=1; shift ;;
 			--transcript) transcript=$2; shift 2 ;;
+			--agent) agent=$2; shift 2 ;;
 			*) shift ;;
 			esac
 		done
 		pane=${pane:-${TMUX_PANE:-}}
-		report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$transcript"
+		report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$transcript" "$agent"
 		;;
 	tabs)
 		local pane='' active='' cwd='' tabs=()

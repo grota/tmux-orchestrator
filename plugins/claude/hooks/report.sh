@@ -45,9 +45,11 @@ esac
 
 # Subagent activity and waits count toward the main agent, but a subagent's
 # lifecycle never starts, completes or ends it, and its session ID is not ours.
+# Its end only means it no longer waits for the user.
 if [[ -n $agent_id ]]; then
 	case "$event" in
-	SessionStart | Stop | StopFailure | SessionEnd) exit 0 ;;
+	SessionStart | StopFailure | SessionEnd) exit 0 ;;
+	Stop) event=SubagentStop ;;
 	esac
 	sid=''
 fi
@@ -55,6 +57,7 @@ fi
 args=(report --protocol 1 --pane "$TMUX_PANE" --kind claude --event "$event")
 [[ -n $detail ]] && args+=(--detail "$detail")
 [[ -n $sid ]] && args+=(--session-id "$sid")
+[[ -n $agent_id ]] && args+=(--agent "$agent_id")
 [[ -n $cwd ]] && args+=(--cwd "$cwd")
 # A new turn starts the interrupt watcher on the main transcript (ADR-0006).
 [[ $event == UserPromptSubmit && -n $transcript ]] && args+=(--transcript "$transcript")

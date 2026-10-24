@@ -22,22 +22,15 @@ PLUGINS="$HOME_TMP/.config/opencode/plugins"
 DEST="$PLUGINS/tmux-orchestrator"
 mkdir -p "$PLUGINS"
 
-# The installer links the adapter and removes the legacy server plugin file.
-printf 'old\n' >"$PLUGINS/tmux-orchestrator.js"
+# The installer links the adapter and leaves other plugin files alone.
+printf 'mine\n' >"$PLUGINS/tmux-orchestrator.js"
 "$BIN" install opencode --home "$HOME_TMP" >/dev/null
 [[ -L $DEST ]] || fail 'adapter is not a link'
 assert_eq "$(readlink "$DEST")" "$ROOT/plugins/opencode"
-[[ ! -e $PLUGINS/tmux-orchestrator.js ]] || fail 'legacy server plugin not removed'
+assert_eq "$(cat "$PLUGINS/tmux-orchestrator.js")" mine
 assert_eq "$(cat "$CONFIG")" "$BEFORE"
 "$BIN" install --home "$HOME_TMP" >/dev/null
 assert_eq "$(readlink "$DEST")" "$ROOT/plugins/opencode"
-
-# The copied adapter directory of the previous layout is replaced by the link.
-rm "$DEST"
-mkdir "$DEST"
-printf 'export default { id: "tmux-orchestrator.opencode" };\n' >"$DEST/tui.js"
-"$BIN" install opencode --home "$HOME_TMP" >/dev/null
-[[ -L $DEST ]] || fail 'old copied layout not replaced'
 
 # Paths this project did not create are left alone.
 rm "$DEST"

@@ -138,18 +138,33 @@ function withProtocol(args) {
   return [args[0], "--protocol", PROTOCOL, ...args.slice(1)];
 }
 
+// The reporter call in flight, killed on exit so it cannot write the pane back
+// after the final remove.
+let running;
+
+function killGroup(child) {
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch {
+    // Already gone.
+  }
+}
+
 function runReporter(args) {
   return new Promise((resolve) => {
     let child;
     try {
-      child = spawn(reporterPath(), withProtocol(args), { stdio: "ignore", env: process.env });
+      // Its own process group, so a kill also stops the tmux client it started.
+      child = spawn(reporterPath(), withProtocol(args), { detached: true, stdio: "ignore", env: process.env });
     } catch {
       resolve();
       return;
     }
-    const timer = setTimeout(() => child.kill("SIGKILL"), REPORTER_TIMEOUT_MS);
+    running = child;
+    const timer = setTimeout(() => killGroup(child), REPORTER_TIMEOUT_MS);
     const done = () => {
       clearTimeout(timer);
+      if (running === child) running = undefined;
       resolve();
     };
     child.on("error", done);
@@ -168,9 +183,13 @@ function runDetached(args) {
   }
 }
 
-export function socketPath(pane) {
-  const base = process.env.TMUX_ORCHESTRATOR_SOCKET_DIR || join("/tmp", `tmux-orchestrator-${process.getuid?.() ?? "user"}`);
-  return { dir: base, path: join(base, `${pane.replace(/[^0-9A-Za-z]/g, "")}.sock`) };
+// Pane IDs repeat across tmux servers, so the TUI's PID makes the name unique.
+// XDG_RUNTIME_DIR, or macOS's per-user tmpdir, keeps other users out.
+export function socketPath(pane, pid = process.pid) {
+  const base =
+    process.env.TMUX_ORCHESTRATOR_SOCKET_DIR ||
+    join(process.env.XDG_RUNTIME_DIR || tmpdir(), `tmux-orchestrator-${process.getuid?.() ?? "user"}`);
+  return { dir: base, path: join(base, `${pane.replace(/[^0-9A-Za-z]/g, "")}-${pid}.sock`) };
 }
 
 // Listens for "focus <sid>" lines from the reporter and focuses that tab.
@@ -217,7 +236,8 @@ function listenForFocus(pane, api, onReady) {
 
 export function start(api, pane, run = runReporter) {
   reporter = findReporter();
-  const enqueue = createQueue(run);
+  let closed = false;
+  const enqueue = createQueue((args) => (closed ? undefined : run(args)));
   let open = new Set();
   let lastKey = "";
 
@@ -249,9 +269,11 @@ export function start(api, pane, run = runReporter) {
   const timer = setInterval(poll, POLL_MS);
 
   return () => {
+    closed = true;
     clearInterval(timer);
     stopListening?.();
     stopFocus();
+    if (running) killGroup(running);
     runDetached(["remove", "--pane", pane]);
   };
 }

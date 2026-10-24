@@ -36,13 +36,14 @@ agent_rollup() {
 }
 
 # Translate an agent event into what it means for the agent:
-# activity, wait, complete, fail, interrupt, start, end,
+# prompt, activity, wait, release, complete, fail, interrupt, start, end,
 # viewed, set:<state>, or nothing for events that do not affect state.
 agent_event_meaning() {
 	local kind=$1 event=$2 detail=${3-}
 	case "$kind:$event" in
 	claude:SessionStart) printf start ;;
-	claude:UserPromptSubmit | claude:PostToolUse | claude:ElicitationResult) printf activity ;;
+	claude:UserPromptSubmit) printf prompt ;;
+	claude:PostToolUse | claude:ElicitationResult) printf activity ;;
 	claude:PreToolUse)
 		case "$detail" in
 		AskUserQuestion | ExitPlanMode) printf wait ;;
@@ -52,6 +53,9 @@ agent_event_meaning() {
 	claude:PermissionRequest | claude:Elicitation) printf wait ;;
 	claude:Stop) printf complete ;;
 	claude:StopFailure) printf fail ;;
+	# A subagent that ends, or a tool that fails after its approval, no longer
+	# waits for the user.
+	claude:SubagentStop | claude:PostToolUseFailure) printf release ;;
 	claude:SessionEnd) printf end ;;
 	# Made by the reporter from the transcript: Claude Code has no interrupt hook.
 	claude:Interrupted) printf interrupt ;;
@@ -78,12 +82,32 @@ agent_event_meaning() {
 	esac
 }
 
-# agent_transition PREV KIND EVENT [DETAIL]
+# agent_waiters WAITERS KIND EVENT DETAIL ACTOR
+# The actors (subagent IDs, or main) still waiting for the user after an
+# event, from the space-separated WAITERS before it.  A wait adds ACTOR; that
+# actor's own activity or end removes it; a new turn or outcome clears all.
+agent_waiters() {
+	local waiters=${1-} actor=${5:-main} out='' w
+	case "$(agent_event_meaning "${2-}" "${3-}" "${4-}")" in
+	'') printf '%s' "$waiters" ;;
+	wait)
+		for w in $waiters; do [[ $w == "$actor" ]] && actor=''; done
+		printf '%s' "$waiters${actor:+${waiters:+ }$actor}"
+		;;
+	activity | release)
+		for w in $waiters; do [[ $w == "$actor" ]] || out+="${out:+ }$w"; done
+		printf '%s' "$out"
+		;;
+	esac
+}
+
+# agent_transition PREV KIND EVENT [DETAIL] [WAITING]
 # Prints "set STATE NOTIFY", "forget", or "ignore".  PREV is empty for an agent
-# that is not stored yet.  NOTIFY is 1 when the state changes into blocked,
-# error, or done.
+# that is not stored yet.  WAITING is 1 while another actor of the agent still
+# waits for the user, which keeps it blocked.  NOTIFY is 1 when the state
+# changes into blocked, error, or done.
 agent_transition() {
-	local prev=${1-} kind=${2-} event=${3-} detail=${4-} meaning next notify=0
+	local prev=${1-} kind=${2-} event=${3-} detail=${4-} waiting=${5-} meaning next notify=0
 	[[ -n $prev ]] && prev=$(agent_valid_state "$prev")
 	meaning=$(agent_event_meaning "$kind" "$event" "$detail")
 
@@ -97,7 +121,16 @@ agent_transition() {
 		return 0
 		;;
 	start) next=idle ;;
-	activity) next=working ;;
+	prompt) next=working ;;
+	activity)
+		next=working
+		[[ $prev == blocked && $waiting == 1 ]] && next=blocked
+		;;
+	release)
+		[[ -n $prev ]] || { printf 'ignore'; return 0; }
+		next=$prev
+		[[ $prev == blocked && $waiting != 1 ]] && next=working
+		;;
 	wait) next=blocked ;;
 	fail) next=error ;;
 	interrupt) next=idle ;;

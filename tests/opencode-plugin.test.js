@@ -80,7 +80,7 @@ test("the TUI plugin reports tabs, events in order, focus and exit", async () =>
   let out = await lines();
   assert.equal(out[0], "tabs --protocol 1 --pane %7 --active ses_a --tab ses_a idle api --tab ses_b idle docs");
   const register = out.find((line) => line.startsWith("register"));
-  assert.match(register, /^register --protocol 1 --pane %7 --socket .*\/7\.sock$/);
+  assert.match(register, /^register --protocol 1 --pane %7 --socket .*\/7-\d+\.sock$/);
   const events = out.filter((line) => line.startsWith("report"));
   assert.deepEqual(events, [
     "report --protocol 1 --pane %7 --kind opencode --event session.execution.started --session-id ses_b",
@@ -127,4 +127,23 @@ test("the reporter is found through the tmux option, then PATH", async () => {
   await writeFile(fakeTmux, "#!/bin/sh\nexit 1\n");
   assert.equal(findReporter({ PATH: dir }), "tmux-orchestrator");
   assert.equal(findReporter({ PATH: join(dir, "missing") }), "tmux-orchestrator");
+});
+
+test("exit kills a reporter call in flight, its children, and queued ones", async () => {
+  const { dir, lines } = await fakeReporter();
+  const log = join(dir, "reporter.log");
+  // The tabs call's child stands in for the tmux client the reporter starts.
+  await writeFile(
+    process.env.TMUX_ORCHESTRATOR_REPORTER,
+    `#!/usr/bin/env bash\nif [[ $1 == tabs ]]; then sh -c "sleep 1; echo child >> '${log}'" & wait; fi\nprintf '%s\\n' "$*" >> '${log}'\n`,
+  );
+  process.env.TMUX_PANE = "%8";
+  const { default: plugin } = await import("../plugins/opencode/tui.js");
+  const tui = fakeTui();
+  tui.state.tabs = [{ sessionID: "ses_a", title: "api", active: true, busy: false, attention: false }];
+  const dispose = plugin.setup(tui.api);
+  await sleep(100);
+  dispose();
+  await sleep(1300);
+  assert.deepEqual(await lines(), ["remove --protocol 1 --pane %8"]);
 });

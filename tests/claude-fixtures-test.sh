@@ -69,6 +69,24 @@ assert_eq "$(state)" working
 assert_eq "$(state)" blocked
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_sid)" sid-start
 
+# Other subagents' tool calls do not hide the wait; the waiting one's own
+# tool call or end does.
+"$HOOK" <"$FIX/subagent-other-tool.json"
+assert_eq "$(state)" blocked
+"$HOOK" <"$FIX/subagent-post-tool.json"
+assert_eq "$(state)" working
+"$HOOK" <"$FIX/subagent-permission.json"
+"$HOOK" <"$FIX/subagent-other-tool.json"
+"$HOOK" <"$FIX/subagent-stop-hook.json"
+assert_eq "$(state)" working
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_waiters 2>/dev/null || true)" ''
+
+# An approved tool that fails ends that subagent's wait too.
+"$HOOK" <"$FIX/subagent-permission.json"
+"$HOOK" <"$FIX/subagent-tool-failure.json"
+"$HOOK" <"$FIX/subagent-other-tool.json"
+assert_eq "$(state)" working
+
 # A prompt with a transcript starts interrupt detection on it.
 TR_DIR=$(mktemp -d)
 TR="$TR_DIR/session.jsonl"

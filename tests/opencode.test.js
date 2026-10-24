@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createQueue, eventArgs, snapshot, tabsArgs } from "../plugins/opencode/tui.js";
+import { createQueue, eventArgs, snapshot, socketPath, tabsArgs } from "../plugins/opencode/tui.js";
 
 // A fake OpenCode 2.x TUI API: tabs, sessions with roots, pending requests.
 function fakeApi({ tabs = [], roots = {}, families = {}, running = [], permissions = {}, forms = {}, titles = {}, enabled = true, route } = {}) {
@@ -139,4 +139,9 @@ test("a failing reporter call does not stop the queue", async () => {
   enqueue(["bad"]);
   await enqueue(["good"]);
   assert.deepEqual(log, ["good"]);
+});
+
+test("the focus socket of the same pane differs between TUIs", () => {
+  assert.notEqual(socketPath("%3", 100).path, socketPath("%3", 200).path);
+  assert.match(socketPath("%3", 100).path, /\/3-100\.sock$/);
 });

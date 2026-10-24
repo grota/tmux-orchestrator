@@ -31,8 +31,34 @@ check 'set working 0' blocked claude ElicitationResult
 check 'set done 1' working claude Stop
 check 'set error 1' working claude StopFailure rate_limit
 check 'forget' working claude SessionEnd
-check 'ignore' working claude PostToolUseFailure
-check 'ignore' working claude SubagentStop
+check 'set working 0' working claude PostToolUseFailure
+check 'set error 0' error claude PostToolUseFailure
+check 'set working 0' blocked claude PostToolUseFailure
+check 'set working 0' working claude SubagentStop
+
+# A blocked agent stays blocked while another of its actors still waits.
+check 'set blocked 0' blocked claude PostToolUse '' 1
+check 'set working 0' blocked claude PostToolUse '' 0
+check 'set blocked 0' blocked claude SubagentStop '' 1
+check 'set working 0' blocked claude SubagentStop ''
+check 'set working 0' blocked claude UserPromptSubmit '' 1
+check 'ignore' '' claude SubagentStop
+w() {
+	local expected=$1 got
+	shift
+	got=$(agent_waiters "$@")
+	[[ $got == "$expected" ]] || { printf 'FAIL: agent_waiters %s -> [%s], expected [%s]\n' "$*" "$got" "$expected" >&2; FAILS=$((FAILS + 1)); }
+}
+w 'a1' '' claude PermissionRequest '' a1
+w 'a1 main' 'a1' claude PreToolUse AskUserQuestion main
+w 'a1' 'a1' claude PermissionRequest '' a1
+w 'a1' 'a1 a2' claude PostToolUse '' a2
+w '' 'a1' claude SubagentStop '' a1
+w '' 'a1' claude PostToolUseFailure '' a1
+w 'a1' 'a1' claude PostToolUse '' a2
+w '' 'a1 a2' claude UserPromptSubmit '' main
+w '' 'a1' claude Stop '' main
+w 'a1' 'a1' claude Notification idle_prompt main
 check 'ignore' working claude Notification permission_prompt
 
 # Claude Code reports no interrupt; the idle prompt changes nothing.

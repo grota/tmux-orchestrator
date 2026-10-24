@@ -99,6 +99,13 @@ assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P1" @agent_1_state)" done
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P2" @agent_1_state)" done
 
+# An out-of-range active slot falls back to slot 1 and creates no stray slot.
+tmux -L "$S" set-option -p -t "$P0" @agent_1_state done
+tmux -L "$S" set-option -p -t "$P0" @agent_active 7
+"$BIN" focus
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
+assert_eq "$(opt "$P0" @agent_7_state)" ''
+
 # The agent-row click path selects the target pane and clears its done state.
 tmux -L "$S" select-window -t alpha:second
 tmux -L "$S" select-pane -t "$P2"
@@ -302,30 +309,20 @@ assert_eq "$(opt "$PT" @agent_socket)" ''
 "$BIN" report --pane "$P0" --kind claude --event SessionEnd --session-id s0
 assert_eq "$(opt "$P0" @agent_n)" ''
 
-# Options left by the older single-agent layout are cleared by reconcile.
-tmux -L "$S" set-option -p -t "$P0" @agent_kind claude
-tmux -L "$S" set-option -p -t "$P0" @agent_state working
-"$BIN" reconcile
-assert_eq "$(opt "$P0" @agent_kind)" ''
-assert_eq "$(opt "$P0" @agent_state)" ''
+# A name ending in ";" survives the batched tmux write.
+report_state "$P0" working 'semi;' claude s0
+assert_eq "$(opt "$P0" @agent_1_name_raw)" 'semi;'
 
-# Legacy options are also cleared beside current slots, and a pane-level
-# @agent_rollup no longer shadows the session rollup on session rows.
+# reconcile rebuilds the session rollup from the pane slots.
 report_state "$P0" blocked alpha-one claude s0
 report_state "$P1" working alpha-two claude s1
-tmux -L "$S" set-option -p -t "$P1" @agent_rollup working
-tmux -L "$S" set-option -p -t "$P1" @agent_kind claude
+tmux -L "$S" set-option -t alpha @agent_rollup idle
 "$BIN" reconcile
-assert_eq "$(opt "$P1" @agent_kind)" ''
-assert_eq "$(tmux -L "$S" show-options -pqv -t "$P1" @agent_rollup)" ''
-assert_eq "$(opt "$P1" @agent_1_state)" working
-tmux -L "$S" select-window -t alpha:main
-tmux -L "$S" select-pane -t "$P1"
-assert_eq "$(tmux -L "$S" display -p -t "$P1" '#{@agent_rollup}')" blocked
+assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_rollup)" blocked
 
-# cleanup leaves no agent option of either layout.
+# cleanup leaves no agent option.
 report_state "$P0" working alpha-one claude s0
-tmux -L "$S" set-option -p -t "$P1" @agent_session old
+tmux -L "$S" set-option -p -t "$P1" @agent_extra old
 "$BIN" cleanup
 LEFT=$(for p in $(tmux -L "$S" list-panes -a -F '#{pane_id}'); do tmux -L "$S" show-options -p -t "$p"; done | grep -c '^@agent_' || true)
 assert_eq "$LEFT" 0
