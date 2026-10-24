@@ -5,7 +5,6 @@
 # agent runs in (ADR-0007): an explicit override, the option the tmux plugin
 # publishes, then PATH.
 set -u
-[[ -n ${TMUX_PANE:-} ]] || exit 0
 reporter=${TMUX_ORCHESTRATOR_REPORTER:-}
 if [[ -z $reporter ]]; then
 	tmux_cmd=(tmux)
@@ -43,6 +42,10 @@ Notification) detail=$ntype ;;
 *) detail='' ;;
 esac
 
+# Claude Code sends subagent hooks with the main session's ID, which still
+# finds the pane showing a background session.
+hook_sid=$sid
+
 # Subagent activity and waits count toward the main agent, but a subagent's
 # lifecycle never starts, completes or ends it, and its session ID is not ours.
 # Its end only means it no longer waits for the user.
@@ -54,7 +57,14 @@ if [[ -n $agent_id ]]; then
 	sid=''
 fi
 
-args=(report --protocol 1 --pane "$TMUX_PANE" --kind claude --event "$event")
+# A background session runs outside tmux; the reporter finds the pane that
+# shows it with `claude attach`.
+if [[ -n ${TMUX_PANE:-} ]]; then
+	args=(report --protocol 1 --pane "$TMUX_PANE" --kind claude --event "$event")
+else
+	[[ -n $hook_sid ]] || exit 0
+	args=(report --protocol 1 --background --background-session "$hook_sid" --kind claude --event "$event")
+fi
 [[ -n $detail ]] && args+=(--detail "$detail")
 [[ -n $sid ]] && args+=(--session-id "$sid")
 [[ -n $agent_id ]] && args+=(--agent "$agent_id")

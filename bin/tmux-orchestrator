@@ -476,7 +476,7 @@ event_label() {
 }
 
 report_event() {
-	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 transcript=${9-} actor=${10-}
+	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 transcript=${9-} actor=${10-} attached=${11-}
 	local i verb next notify raw waiters='' waiting=0
 
 	[[ -n $pane && -n $kind && -n $event ]] || return 0
@@ -534,6 +534,14 @@ report_event() {
 
 	write_slot "$pane" "$i"
 	write_pane_summary "$pane"
+	# A Claude pane either runs its agent or shows an attached background one.
+	if [[ $kind == claude ]]; then
+		if [[ -n $attached ]]; then
+			queue set-option -p -t "$pane" @agent_attached "$attached"
+		else
+			queue set-option -pu -t "$pane" @agent_attached
+		fi
+	fi
 	if [[ $kind == claude && $waiters != "$WAITERS" ]]; then
 		if [[ -n $waiters ]]; then
 			queue set-option -p -t "$pane" @agent_1_waiters "$waiters"
@@ -763,8 +771,135 @@ reconcile() {
 }
 
 # Clear done for the agent each client is viewing.
+# --- Attached background sessions ---------------------------------------------
+
+# Print `claude agents --json` once per run.
+claude_agents_json() {
+	local claude_bin=${CLAUDE_BIN:-}
+	if [[ -z ${AGENTS_JSON+x} ]]; then
+		[[ -n $claude_bin ]] || claude_bin=$(command -v claude 2>/dev/null || true)
+		AGENTS_JSON=''
+		if [[ -n $claude_bin ]]; then
+			if command -v timeout >/dev/null 2>&1; then
+				AGENTS_JSON=$(timeout 2 "$claude_bin" agents --json 2>/dev/null || true)
+			else
+				AGENTS_JSON=$("$claude_bin" agents --json 2>/dev/null || true)
+			fi
+		fi
+	fi
+	printf '%s' "$AGENTS_JSON"
+}
+
+# Print "<pane> <arg>" for each pane running a Claude viewer of a background
+# session (`claude ... attach <arg>`), skipping suspended viewers.
+attach_viewers() {
+	local panes
+	panes=$(tmux_do list-panes -a -F '#{pane_pid} #{pane_id}' || true)
+	[[ -n $panes ]] || return 0
+	ps -A -ww -o pid= -o ppid= -o stat= -o args= 2>/dev/null | awk -v panes="$panes" '
+		BEGIN {
+			n = split(panes, rows, "\n")
+			for (k = 1; k <= n; k++) { split(rows[k], f, " "); pane[f[1]] = f[2] }
+		}
+		{
+			parent[$1] = $2
+			if ($3 ~ /T/) next
+			cmd = $4
+			sub(/.*\//, "", cmd)
+			if (cmd != "claude") next
+			line = $0
+			sub(/^ *[0-9]+ +[0-9]+ +[^ ]+ +/, "", line)
+			at = index(line " ", " attach ")
+			if (!at) next
+			arg = substr(line, at + 8)
+			sub(/^ +/, "", arg)
+			sub(/ +$/, "", arg)
+			if (arg != "") viewer[$1] = arg
+		}
+		END {
+			for (pid in viewer) {
+				p = pid
+				for (hops = 0; hops < 32 && p != "" && p != 0; hops++) {
+					if (p in pane) { print pane[p] " " viewer[pid]; break }
+					p = parent[p]
+				}
+			}
+		}'
+}
+
+# Print the background session ARG resolves to: a session ID starting with it,
+# else the only session whose name contains it, ignoring case.  SID, when
+# given, is checked first without asking Claude Code.
+attach_session() {
+	local arg=$1 sid=${2-}
+	[[ -n $arg ]] || return 0
+	if [[ -n $sid && $sid == "$arg"* ]]; then
+		printf '%s' "$sid"
+		return 0
+	fi
+	claude_agents_json | jq -r --arg a "$arg" '
+		[if type == "array" then .[] else empty end | select(.sessionId)] as $all
+		| [$all[] | select(.sessionId | startswith($a))] as $ids
+		| if ($ids | length) == 1 then $ids[0].sessionId
+		  else [$all[] | select((.name // "") | ascii_downcase | contains($a | ascii_downcase))] as $names
+		  | if ($names | length) == 1 then $names[0].sessionId else empty end
+		  end' 2>/dev/null || true
+}
+
+# A hook from background session SID: apply it to every pane showing the
+# session and forget it in panes that no longer do.  EVENT_SID is the session
+# ID the event itself carries, empty for a subagent.
+report_background() {
+	local kind=$1 event=$2 detail=$3 sid=$4 event_sid=$5 name=$6 cwd=$7 refresh=$8 transcript=$9 actor=${10-}
+	local pane arg shown=' '
+	[[ -n $sid ]] || return 0
+	while read -r pane arg; do
+		[[ -n $pane && $(attach_session "$arg" "$sid") == "$sid" ]] && shown+="$pane "
+	done < <(attach_viewers)
+	while read -r pane arg; do
+		[[ $arg == "$sid" && $shown != *" $pane "* ]] && remove_pane "$pane"
+	done < <(tmux_do list-panes -a -F '#{pane_id} #{@agent_attached}' || true)
+	for pane in $shown; do
+		report_event "$pane" "$kind" "$event" "$detail" "$event_sid" "$name" "$cwd" "$refresh" "$transcript" "$actor" "$sid"
+	done
+}
+
+# Add the session a client's pane just attached to, and forget attached
+# sessions no longer shown.  Only scans processes when a client views a
+# Claude pane or some pane holds an attached session.
+sync_attached() {
+	local active pane cmd held scan=0 viewers='' arg sid state name current
+	active=" $(tmux_do list-clients -F '#{pane_id}' | tr '\n' ' ') "
+	held=''
+	while read -r pane cmd sid; do
+		[[ -n $pane ]] || continue
+		[[ -n $sid ]] && held+="$pane $sid"$'\n' && scan=1
+		[[ $cmd == claude && $active == *" $pane "* ]] && scan=1
+	done < <(tmux_do list-panes -a -F '#{pane_id} #{pane_current_command} #{@agent_attached}' || true)
+	((scan)) || return 0
+	viewers=$(attach_viewers)
+
+	while read -r pane sid; do
+		[[ -n $pane ]] || continue
+		arg=$(awk -v p="$pane" '$1 == p { sub(/^[^ ]+ /, ""); print; exit }' <<<"$viewers")
+		[[ -n $arg && $(attach_session "$arg" "$sid") == "$sid" ]] || remove_pane "$pane"
+	done <<<"$held"
+
+	while read -r pane arg; do
+		[[ -n $pane && $active == *" $pane "* ]] || continue
+		current=$(get_pane_opt "$pane" @agent_attached)
+		[[ -n $current && $(attach_session "$arg" "$current") == "$current" ]] && continue
+		sid=$(attach_session "$arg")
+		[[ -n $sid ]] || continue
+		IFS=$US read -r state name <<<"$(claude_agents_json | jq -r --arg s "$sid" --arg us "$US" '
+			.[] | select(.sessionId == $s) | "\(.state // "")\($us)\(.name // "")"' 2>/dev/null | head -n 1)"
+		report_event "$pane" claude Attached "$state" "$sid" "$name" '' 0 '' '' "$sid"
+	done <<<"$viewers"
+}
+
 focus_agents() {
 	local client pane slot verb next notify
+	sync_attached
 	while IFS=' ' read -r client pane; do
 		[[ -n $pane ]] || continue
 		load_pane "$pane"
@@ -1044,10 +1179,12 @@ main() {
 	esac
 	case "$command" in
 	report)
-		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 transcript='' agent=''
+		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 transcript='' agent='' background=0 bg_sid=''
 		while (($#)); do
 			case "$1" in
 			--pane) pane=$2; shift 2 ;;
+			--background) background=1; shift ;;
+			--background-session) bg_sid=$2; shift 2 ;;
 			--kind) kind=$2; shift 2 ;;
 			--event) event=$2; shift 2 ;;
 			--detail) detail=$2; shift 2 ;;
@@ -1060,6 +1197,10 @@ main() {
 			*) shift ;;
 			esac
 		done
+		if ((background)); then
+			report_background "$kind" "$event" "$detail" "${bg_sid:-$sid}" "$sid" "$name" "$cwd" "$refresh" "$transcript" "$agent"
+			return 0
+		fi
 		pane=${pane:-${TMUX_PANE:-}}
 		report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$transcript" "$agent"
 		;;

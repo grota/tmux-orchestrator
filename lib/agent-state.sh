@@ -57,6 +57,15 @@ agent_event_meaning() {
 	# waits for the user.
 	claude:SubagentStop | claude:PostToolUseFailure) printf release ;;
 	claude:SessionEnd) printf end ;;
+	# Made by the reporter when a pane attaches to a background session; the
+	# detail is the state Claude Code reports for it.
+	claude:Attached)
+		case "$detail" in
+		working | blocked | done | idle) printf 'set:%s' "$detail" ;;
+		failed | error) printf set:error ;;
+		*) printf set:unknown ;;
+		esac
+		;;
 	# Made by the reporter from the transcript: Claude Code has no interrupt hook.
 	claude:Interrupted) printf interrupt ;;
 

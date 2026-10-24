@@ -222,6 +222,17 @@ uses the working-directory basename immediately and asynchronously refreshes the
 name from `claude agents --json` on `SessionStart` and `UserPromptSubmit`.
 If the lookup is slow or fails, the fallback name remains.
 
+### Background sessions
+
+A background session shown in a pane with `claude attach <id|name>` is that
+pane's agent. Its hooks run outside tmux, so the reporter finds the pane whose
+`claude attach` argument matches the session: the start of its id, or part of
+its name when only one session's name contains it. Selecting the pane right
+after attaching adds the row with the state Claude Code reports. The row is
+removed once the pane stops showing the session (exit, `←` to the agent view,
+or `Ctrl+Z`). Events from a session that no pane shows are ignored and send no
+notification.
+
 ## OpenCode events
 
 The adapter runs in the OpenCode TUI and reports each open tab as its own agent.
@@ -373,9 +384,10 @@ servers and do not touch the running one.
   select something or click its row.
 - Notifications omit location, so two agents with the same name are ambiguous;
   use the sidebar to disambiguate.
-- Claude Code background sessions opened with `claude attach` are not tracked.
-  Their hooks run in Claude Code's background process, outside any tmux pane,
-  so the reporter cannot tell which pane shows them.
+- A Claude Code background session is tracked only while a pane shows it with
+  `claude attach`, and only on the default tmux server. After `←` back to the
+  agent view, its row stays until the next pane, window or session selection or
+  the session's next hook.
 - State disappears when the tmux server exits. There is no external history.
 - The Claude name lookup depends on `claude agents --json`; a missing or slow
   lookup falls back to the directory basename.

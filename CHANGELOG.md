@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@tmux-orchestrator-name-max-chars` option: `wrap` (default), `nowrap` or a character limit.
 - Keys panel, opened from the `? keys` sidebar row, listing the bindings that call the reporter.
 - The focused agent's name is bold in the sidebar.
+- Claude Code background sessions shown with `claude attach` are tracked as the agent of that pane.
 
 ### Changed
 
