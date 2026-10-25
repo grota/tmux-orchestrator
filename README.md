@@ -8,6 +8,8 @@ State comes from agent lifecycle events, not from screen scraping. The reporter
 stores it in tmux pane and session options, so there is no daemon, no state file,
 and no external database.
 
+[![tmux-orchestrator architecture](docs/diagrams/architecture.gif)](docs/diagrams/architecture.gif)
+
 ## Requirements
 
 - tmux 3.9 or newer (`side-status` is required).
