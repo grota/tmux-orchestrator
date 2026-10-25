@@ -61,6 +61,15 @@ w '' 'a1' claude Stop '' main
 w 'a1' 'a1' claude Notification idle_prompt main
 check 'ignore' working claude Notification permission_prompt
 
+# An attached background session takes the state Claude Code reports for it.
+check 'set working 0' '' claude Attached working
+check 'set blocked 1' '' claude Attached blocked
+check 'set done 1' '' claude Attached done
+check 'set idle 0' '' claude Attached idle
+check 'set error 1' '' claude Attached failed
+check 'set error 1' '' claude Attached error
+check 'set unknown 0' '' claude Attached whatever
+
 # Claude Code reports no interrupt; the idle prompt changes nothing.
 check 'ignore' working claude Notification idle_prompt
 check 'set idle 0' working claude Interrupted

@@ -38,11 +38,11 @@ An argument that is a prefix of the event's session id matches without calling C
 
 ### Background events
 
-`report --background --session-id S` scans viewers and keeps the panes whose argument resolves to `S`. If there are none, it removes an agent with session `S` from any pane still holding it (marked by `@agent_1_attached`) and stops. Otherwise it handles the event once per matching pane, as if it came with `--pane`. Notifications follow because the event goes through the normal path.
+`report --background --session-id S` scans viewers and keeps the panes whose argument resolves to `S`. If there are none, it removes an agent with session `S` from any pane still holding it (marked by `@agent_attached`) and stops. Otherwise it handles the event once per matching pane, as if it came with `--pane`. Notifications follow because the event goes through the normal path.
 
 ### Discovery and removal on focus
 
-The focus hooks already run `tmux-orchestrator focus`. It additionally scans only the clients' active panes (cheap). For a viewer whose argument resolves to a session not already that pane's agent, it calls `claude agents --json`, then reports a synthetic event that adds the agent with the reported name, `@agent_1_attached` set to `1`, and the mapped state (`working`, `blocked`, `done`, `idle`; `failed` or `error` to `error`; anything else `unknown`). Then, for every pane whose agent has `@agent_1_attached`, if the pane has no viewer resolving to that agent's session, the agent is removed. `reconcile` on `pane-exited` already removes agents of exited panes.
+The focus hooks already run `tmux-orchestrator focus`. It additionally scans only the clients' active panes (cheap). For a viewer whose argument resolves to a session not already that pane's agent, it calls `claude agents --json`, then reports a synthetic event that adds the agent with the reported name, `@agent_attached` set to the session id, and the mapped state (`working`, `blocked`, `done`, `idle`; `failed` or `error` to `error`; anything else `unknown`). Then, for every pane whose agent has `@agent_1_attached`, if the pane has no viewer resolving to that agent's session, the agent is removed. `reconcile` on `pane-exited` already removes agents of exited panes.
 
 The focus hook runs with `run-shell -b`, so `claude agents --json` never blocks tmux.
 

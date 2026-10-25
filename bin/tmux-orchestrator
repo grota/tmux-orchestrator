@@ -733,11 +733,10 @@ refresh_name() {
 		out=$("$claude_bin" agents --json 2>/dev/null || true)
 	fi
 	[[ -n $out ]] || return 0
+	# `claude agents --json` prints an array; attach resolution reads it the
+	# same way.
 	name=$(printf '%s' "$out" | jq -r --arg id "$sid" '
-		if type == "array" then .[]
-		elif type == "object" then (.agents // .sessions // [])[]
-		else empty end
-		| select((.sessionId // .session_id // .id) == $id)
+		.[] | select((.sessionId // .session_id // .id) == $id)
 		| (.name // .title // empty)
 	' 2>/dev/null | head -n 1)
 	[[ -n $name ]] || return 0
@@ -770,7 +769,6 @@ reconcile() {
 	refresh_clients
 }
 
-# Clear done for the agent each client is viewing.
 # --- Attached background sessions ---------------------------------------------
 
 # Print `claude agents --json` once per run.
@@ -1143,20 +1141,57 @@ protocol_ok() {
 
 usage() {
 	cat <<'EOF'
-usage: tmux-orchestrator <command>
+usage: tmux-orchestrator <command> [options]
 
-  (adapter commands accept --protocol N; this reporter speaks protocol 1)
-  report --pane ID --kind KIND --event EVENT [--detail D] [--session-id ID]
-         [--name NAME] [--cwd DIR] [--refresh] [--transcript PATH] [--agent ID]
-  tabs --pane ID [--active ID] [--cwd DIR] [--tab ID STATUS TITLE]...
-  remove --pane ID
-  register --pane ID --socket PATH
-  refresh-name --pane ID --session-id ID [--claude-bin PATH]
-  focus | select ROW | reconcile | gc | toggle
-  notify pause | resume | status
-  cleanup
-  install [opencode] [--home DIR] [--quiet]
-  uninstall [opencode] [--home DIR]
+  report        report an agent event (adapter commands accept --protocol N)
+  tabs          report the OpenCode tabs of a pane
+  remove        forget the agents of a pane
+  register      store the OpenCode control socket of a pane
+  refresh-name  re-read the agent name from `claude agents --json`
+  focus         update the agents of the panes clients view
+  select ROW    act on a sidebar row
+  reconcile     rebuild session summaries
+  gc            drop agents of dead panes and reconcile
+  toggle        enable or disable the sidebar
+  notify        pause | resume | toggle | status
+  cleanup       clear state, hooks and the sidebar
+  install       [opencode] [--home DIR] [--quiet]
+  uninstall     [opencode] [--home DIR] [--quiet]
+
+report options:
+  --pane ID                pane to report on (default: $TMUX_PANE)
+  --kind KIND              agent kind: claude or opencode
+  --event EVENT            adapter event name
+  --detail D               event detail: tool name, tab or attach state
+  --session-id ID          agent session id
+  --name NAME              agent name shown in the sidebar
+  --cwd DIR                agent working directory
+  --refresh                refresh the name from Claude in the background
+  --transcript PATH        transcript to watch for interrupts
+  --agent ID               subagent actor id (default: main)
+  --background             event without a pane: apply it to every viewer
+  --background-session ID  background session id (default: --session-id)
+
+tabs options:
+  --pane ID                pane whose tabs are reported
+  --active ID              active tab id
+  --tab ID STATUS TITLE    one tab, repeatable
+  --cwd DIR                tab working directory
+
+remove and register options:
+  --pane ID                pane to act on (default: $TMUX_PANE)
+  --socket PATH            OpenCode control socket (register only)
+
+refresh-name options:
+  --pane ID                pane whose agent is named
+  --session-id ID          session id to look up
+  --claude-bin PATH        Claude binary to ask
+
+install and uninstall options:
+  --home DIR               OpenCode config home (default: $HOME)
+  --quiet                  print nothing on success
+
+Every adapter command accepts --protocol N; this reporter speaks 1.
 EOF
 }
 
@@ -1282,7 +1317,16 @@ main() {
 			printf 'notifications resumed\n'
 			;;
 		status | '') notify_status ;;
-		*) printf 'usage: tmux-orchestrator notify pause|resume|status\n' >&2; return 2 ;;
+		toggle)
+			if [[ $(get_global @tmux-orchestrator-notify-paused) == 1 ]]; then
+				tmux_ok set-option -gu @tmux-orchestrator-notify-paused
+				printf 'notifications resumed\n'
+			else
+				tmux_ok set-option -g @tmux-orchestrator-notify-paused 1
+				printf 'notifications paused\n'
+			fi
+			;;
+		*) printf 'usage: tmux-orchestrator notify pause|resume|toggle|status\n' >&2; return 2 ;;
 		esac
 		;;
 	cleanup) cleanup_all ;;

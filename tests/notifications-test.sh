@@ -266,6 +266,10 @@ tmux -L "$S" set-option -gu @tmux-orchestrator-notify-terminal
 "$BIN" notify status | grep -q 'notifications: paused' || fail 'pause idempotence'
 "$ROOT/tmux-orchestrator.tmux"
 "$BIN" notify status | grep -q 'notifications: paused' || fail 'pause did not survive reload'
+"$BIN" notify toggle >/dev/null
+"$BIN" notify status | grep -q 'notifications: active' || fail 'toggle did not resume'
+"$BIN" notify toggle >/dev/null
+"$BIN" notify status | grep -q 'notifications: paused' || fail 'toggle did not pause'
 "$BIN" notify resume >/dev/null
 
 # An OpenCode tab counts as viewed only when it is the active tab.

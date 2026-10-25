@@ -109,7 +109,7 @@ The system MUST suppress notifications for unchanged consecutive states. It SHAL
 
 ### Requirement: Global pause
 
-The system SHALL provide `notify pause`, `notify resume`, and `notify status`. Pause MUST be global, indefinite, and idempotent, and MUST suppress notifications on all channels while state tracking and the sidebar continue.
+The system SHALL provide `notify pause`, `notify resume`, `notify toggle`, and `notify status`. Pause MUST be global, indefinite, and idempotent, and MUST suppress notifications on all channels while state tracking and the sidebar continue.
 
 #### Scenario: Pause
 
@@ -120,6 +120,11 @@ The system SHALL provide `notify pause`, `notify resume`, and `notify status`. P
 
 - **WHEN** the user runs `notify resume`
 - **THEN** subsequent attention transitions notify again
+
+#### Scenario: Toggle
+
+- **WHEN** the user runs `notify toggle`
+- **THEN** a paused state becomes active and an active state becomes paused
 
 #### Scenario: Repeated pause
 

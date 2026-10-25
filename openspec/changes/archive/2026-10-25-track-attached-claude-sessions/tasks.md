@@ -7,8 +7,8 @@
 
 ## 2. Background events
 
-- [x] 2.1 Make `plugins/claude/hooks/report.sh` forward events without `TMUX_PANE` as `report --background` with the session id, and exit when there is no session id; verify with `tests/claude-fixtures-test.sh` running a fixture with `TMUX_PANE` unset.
-- [x] 2.2 Handle `report --background` in the reporter: apply the event to every pane showing the session and mark the agent `@agent_1_attached`; with no viewer, remove the attached agent and send no notification; verify with reporter tests for both cases, including that no notification command runs.
+- [x] 2.1 Make `plugins/claude/hooks/report.sh` forward events without `TMUX_PANE` as `report --background` with the session id, and exit when there is no session id; verify with `tests/attach-test.sh`, whose hooks run without `TMUX_PANE`.
+- [x] 2.2 Handle `report --background` in the reporter: apply the event to every pane showing the session and mark the agent `@agent_attached` with the session id; with no viewer, remove the attached agent and send no notification; verify with reporter tests for both cases, including that no notification command runs.
 
 ## 3. Discovery and removal
 

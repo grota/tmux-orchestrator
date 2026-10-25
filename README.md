@@ -287,8 +287,11 @@ pause indicator in the sidebar.
 ```sh
 tmux-orchestrator notify pause
 tmux-orchestrator notify resume
+tmux-orchestrator notify toggle
 tmux-orchestrator notify status
 ```
+
+`notify toggle` flips between the two.
 
 Example tmux bindings:
 
@@ -388,6 +391,8 @@ servers and do not touch the running one.
   `claude attach`, and only on the default tmux server. After `←` back to the
   agent view, its row stays until the next pane, window or session selection or
   the session's next hook.
+- A very long `? keys` panel fills the sidebar and hides the agent list until
+  you close it; the keys panel is not a scrolling list.
 - State disappears when the tmux server exits. There is no external history.
 - The Claude name lookup depends on `claude agents --json`; a missing or slow
   lookup falls back to the directory basename.
