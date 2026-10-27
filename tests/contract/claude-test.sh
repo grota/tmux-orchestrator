@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Contract test: checks that the installed Claude Code still has the internal,
-# undocumented behaviour the reporter relies on (ADR-0009).  It starts a real
-# interactive Claude in a private tmux server, sends it no prompt, and needs
-# no API turn.  Run it after a Claude Code update; a failure means a feature
+# undocumented behaviour the reporter relies on (ADR-0009, ADR-0010).  It
+# starts a real interactive Claude in a private tmux server and sends it no
+# prompt, so it needs no API turn.  TMUX_ORCHESTRATOR_CONTRACT_TURN=1 also
+# interrupts one Haiku turn to check interrupt detection end to end.  Run it after a Claude Code update; a failure means a feature
 # of this project broke.  The checkout must be a folder Claude already trusts.
 set -eu
 
@@ -32,7 +33,7 @@ printf 'Claude Code %s\n' "$(claude --version 2>/dev/null)"
 
 # A session started from inside Claude must not inherit its messaging socket.
 tmux -L "$S" -f /dev/null new-session -d -x 150 -y 40 -c "$ROOT" \
-	"env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDECODE claude -n $PROBE"
+	"env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDECODE claude --model haiku -n $PROBE"
 PANE=$(tmux -L "$S" display -p '#{pane_id}')
 
 # The session registry: one JSON file per running session.
@@ -48,6 +49,8 @@ SOCKET=$(jq -r '.messagingSocketPath // empty' "$REGISTRY")
 [[ -n $SID ]] || fail 'registry entry has no sessionId'
 [[ -n $SOCKET && -S $SOCKET ]] || fail 'registry entry has no messagingSocketPath socket'
 pass 'session registry lists sessionId, name and messagingSocketPath'
+[[ $(jq -r '.status // empty' "$REGISTRY") == idle ]] || fail "registry status is $(jq -c .status "$REGISTRY"), not idle"
+pass 'session registry reports status idle before a prompt'
 
 # The reporter treats a pane whose current command is claude as a Claude pane.
 [[ $(tmux -L "$S" display -p -t "$PANE" '#{pane_current_command}') == claude ]] ||
@@ -73,6 +76,30 @@ pass 'Claude shows the new name'
 NAME=$(claude agents --json 2>/dev/null | jq -r --arg id "$SID" '.[] | select(.sessionId == $id) | .name' 2>/dev/null || true)
 [[ $NAME == "$RENAMED" ]] || fail 'claude agents --json does not show the new name'
 pass 'claude agents --json shows the new name'
+
+# Interrupts: the registry status goes idle without a Stop hook.
+if [[ ${TMUX_ORCHESTRATOR_CONTRACT_TURN:-} == 1 ]]; then
+	tmux -L "$S" send-keys -t "$PANE" -l 'Write a 6000-word story in 12 numbered chapters about a lighthouse keeper. Do not use any tools.'
+	tmux -L "$S" send-keys -t "$PANE" Enter
+	"$BIN" report --pane "$PANE" --kind claude --event UserPromptSubmit --session-id "$SID"
+	for _ in $(seq 1 40); do
+		[[ $(jq -r .status "$REGISTRY") == busy ]] && break
+		sleep 0.25
+	done
+	[[ $(jq -r .status "$REGISTRY") == busy ]] || fail 'registry status did not turn busy during a turn'
+	sleep 1.5
+	tmux -L "$S" send-keys -t "$PANE" Escape
+	for _ in $(seq 1 60); do
+		[[ $(tmux -L "$S" show-options -pqv -t "$PANE" @agent_1_event) == claude:Interrupted ]] && break
+		sleep 0.25
+	done
+	[[ $(tmux -L "$S" show-options -pqv -t "$PANE" @agent_1_event) == claude:Interrupted ]] ||
+		fail "an interrupted turn was not detected; registry status is $(jq -r .status "$REGISTRY")"
+	[[ $(tmux -L "$S" show-options -pqv -t "$PANE" @agent_1_state) == idle ]] || fail 'the interrupted agent is not idle'
+	pass 'an interrupted turn is detected from the registry status'
+else
+	printf 'skip: interrupt detection (set TMUX_ORCHESTRATOR_CONTRACT_TURN=1; costs one Haiku turn)\n'
+fi
 
 # Attached background sessions: a session started with --bg and no prompt
 # waits for one, so it costs no model turn.

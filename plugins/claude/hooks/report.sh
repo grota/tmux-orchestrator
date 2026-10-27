@@ -25,13 +25,11 @@ done < <(jq -j '[
 	.session_title // "",
 	.agent_id // "",
 	.tool_name // "",
-	.error // "",
-	.transcript_path // ""
+	.error // ""
 ] | map(tostring + "\u0000") | add' 2>/dev/null)
-((${#fields[@]} == 8)) || exit 0
+((${#fields[@]} == 7)) || exit 0
 event=${fields[0]} sid=${fields[1]} cwd=${fields[2]} title=${fields[3]}
 agent_id=${fields[4]} tool=${fields[5]} error=${fields[6]}
-transcript=${fields[7]}
 [[ -n $event ]] || exit 0
 
 case "$event" in
@@ -67,8 +65,6 @@ fi
 [[ -n $sid ]] && args+=(--session-id "$sid")
 [[ -n $agent_id ]] && args+=(--agent "$agent_id")
 [[ -n $cwd ]] && args+=(--cwd "$cwd")
-# A new turn starts the interrupt watcher on the main transcript (ADR-0006).
-[[ $event == UserPromptSubmit && -n $transcript ]] && args+=(--transcript "$transcript")
 case "$event" in
 SessionStart | UserPromptSubmit)
 	# A supplied title is authoritative; only look one up when it is absent.

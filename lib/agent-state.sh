@@ -66,7 +66,8 @@ agent_event_meaning() {
 		*) printf set:unknown ;;
 		esac
 		;;
-	# Made by the reporter from the transcript: Claude Code has no interrupt hook.
+	# Made by the reporter from the session status: Claude Code has no interrupt
+	# hook (ADR-0010).
 	claude:Interrupted) printf interrupt ;;
 
 	opencode:session.execution.started | opencode:permission.replied | \

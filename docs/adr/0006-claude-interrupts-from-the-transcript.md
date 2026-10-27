@@ -1,5 +1,7 @@
 # Claude interrupts are read from the transcript
 
+Superseded by ADR-0010.
+
 Claude Code sends no hook when the user interrupts a turn, and a live test showed that the `idle_prompt` notification does not fire after an interrupt either. An interrupted agent would therefore show `working` until its next prompt, which defeats a sidebar meant to be read at a glance. Claude Code does write a main-thread transcript entry starting with `[Request interrupted by user` at the moment of the interrupt. We watch for that entry during each turn and report it as an adapter-made `claude:Interrupted` event. This is a fallback for a named gap, as ADR-0001 allows, not a second source of state.
 
 ## Considered Options

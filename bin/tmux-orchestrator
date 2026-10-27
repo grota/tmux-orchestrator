@@ -476,7 +476,7 @@ event_label() {
 }
 
 report_event() {
-	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 transcript=${9-} actor=${10-} attached=${11-}
+	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 actor=${9-} attached=${10-}
 	local i verb next notify raw waiters='' waiting=0
 
 	[[ -n $pane && -n $kind && -n $event ]] || return 0
@@ -553,8 +553,8 @@ report_event() {
 
 	[[ $verb == set && $notify == 1 ]] && notify_agent "$pane" "$i" "$next"
 
-	if [[ $kind == claude && $event == UserPromptSubmit && -n $transcript ]]; then
-		start_interrupt_watch "$pane" "$transcript"
+	if [[ $kind == claude && $event == UserPromptSubmit ]]; then
+		start_interrupt_watch "$pane" "${SID[i]-}"
 	fi
 
 	if [[ $refresh == 1 && -n ${SID[i]-} ]]; then
@@ -564,68 +564,56 @@ report_event() {
 	fi
 }
 
-# Claude Code sends no hook for an interrupt, but writes a main-thread
-# transcript entry starting with "[Request interrupted by user" (ADR-0006).
-# One watcher per pane follows the transcript during a turn; a new token in
-# @agent_1_watch retires the previous one.
-INTERRUPT_MARKER='"text":"[Request interrupted by user'
-
+# Claude Code sends no hook for an interrupt (ADR-0010).  While a turn runs,
+# one watcher per pane reads the session's status from Claude's session
+# registry.  Two idle readings in a row while the agent is still working or
+# blocked mean the turn ended without a Stop hook; one reading could race the
+# Stop hook of a turn that just completed.  A new token in @agent_1_watch
+# retires the previous watcher.
 start_interrupt_watch() {
-	local pane=$1 transcript=$2 token cmd offset
-	# The offset is taken now, so an interrupt written while the watcher starts
-	# is still seen.
-	offset=$(file_size "$transcript") || return 0
+	local pane=$1 sid=$2 token cmd var
+	[[ -n $sid ]] || return 0
 	token="$(date +%s)-$$-$RANDOM"
 	set_pane_opt "$pane" @agent_1_watch "$token"
-	cmd=$(printf '%q ' "$SELF_DIR/tmux-orchestrator" watch-interrupt --pane "$pane" --transcript "$transcript" --token "$token" --offset "$offset")
+	cmd=$(printf '%q ' "$SELF_DIR/tmux-orchestrator" watch-interrupt --pane "$pane" --session-id "$sid" --token "$token")
 	# run-shell uses the server's environment, so pass ours through explicitly.
-	local var
-	for var in TMUX_SOCKET TMUX_ORCHESTRATOR_WATCH_TICK TMUX_ORCHESTRATOR_WATCH_IDLE; do
+	for var in TMUX_SOCKET TMUX_ORCHESTRATOR_WATCH_TICK CLAUDE_CONFIG_DIR; do
 		[[ -n ${!var:-} ]] && cmd="$var=$(printf '%q' "${!var}") $cmd"
 	done
 	tmux_ok run-shell -b "$cmd"
 }
 
-file_size() {
-	local size
-	size=$(wc -c <"$1" 2>/dev/null) || return 1
-	printf '%s' "${size//[!0-9]/}"
-}
-
 watch_interrupt() {
-	local pane=$1 transcript=$2 token=$3 offset=$4
-	local tick=${TMUX_ORCHESTRATOR_WATCH_TICK:-3} idle_limit=${TMUX_ORCHESTRATOR_WATCH_IDLE:-3600}
-	local LC_ALL=C size now last_growth chunk complete line
-	[[ -n $pane && -n $token && -f $transcript ]] || return 0
-	[[ $offset =~ ^[0-9]+$ ]] || offset=$(file_size "$transcript") || return 0
-	last_growth=$(date +%s)
+	local pane=$1 sid=$2 token=$3
+	local tick=${TMUX_ORCHESTRATOR_WATCH_TICK:-2} registry='' misses=0 idle=0 entry
+	[[ -n $pane && -n $sid && -n $token ]] || return 0
 	while sleep "$tick"; do
 		[[ $(get_pane_opt "$pane" @agent_1_watch) == "$token" ]] || return 0
 		case "$(get_pane_opt "$pane" @agent_1_state)" in
 		working | blocked) ;;
 		*) return 0 ;;
 		esac
-		size=$(file_size "$transcript") || return 0
-		[[ -n $size ]] || return 0
-		now=$(date +%s)
-		if ((size < offset)); then
-			offset=$size
-		elif ((size > offset)); then
-			last_growth=$now
-			# The x keeps a trailing newline from being stripped.
-			chunk=$(tail -c +"$((offset + 1))" "$transcript" 2>/dev/null | head -c "$((size - offset))"; printf x)
-			chunk=${chunk%x}
-			[[ $chunk == *$'\n'* ]] || continue
-			complete=${chunk%$'\n'*}
-			offset=$((offset + ${#complete} + 1))
-			while IFS= read -r line; do
-				if [[ $line == *"$INTERRUPT_MARKER"* && $line != *'"isSidechain":true'* ]]; then
-					unset_pane_opt "$pane" @agent_1_watch
-					report_event "$pane" claude Interrupted '' '' '' '' 0 '' main
-					return 0
-				fi
-			done <<<"$complete"
-		elif ((now - last_growth >= idle_limit)); then
+		# The entry can lag the first prompt of a new session.
+		if [[ -z $registry ]]; then
+			registry=$(claude_registry_file "$sid")
+			if [[ -z $registry ]]; then
+				misses=$((misses + 1))
+				((misses < 5)) || return 0
+				continue
+			fi
+		fi
+		# A missing entry or another session ID means the session ended or
+		# was replaced, and its own events take over.
+		entry=$(jq -r '"\(.sessionId) \(.status // "")"' "$registry" 2>/dev/null) || return 0
+		[[ ${entry%% *} == "$sid" ]] || return 0
+		if [[ ${entry#* } == idle ]]; then
+			idle=$((idle + 1))
+		else
+			idle=0
+		fi
+		if ((idle >= 2)); then
+			unset_pane_opt "$pane" @agent_1_watch
+			report_event "$pane" claude Interrupted '' '' '' '' 0 main
 			return 0
 		fi
 	done
@@ -852,7 +840,7 @@ attach_session() {
 # session and forget it in panes that no longer do.  EVENT_SID is the session
 # ID the event itself carries, empty for a subagent.
 report_background() {
-	local kind=$1 event=$2 detail=$3 sid=$4 event_sid=$5 name=$6 cwd=$7 refresh=$8 transcript=$9 actor=${10-}
+	local kind=$1 event=$2 detail=$3 sid=$4 event_sid=$5 name=$6 cwd=$7 refresh=$8 actor=${9-}
 	local pane arg shown=' '
 	[[ -n $sid ]] || return 0
 	while read -r pane arg; do
@@ -862,7 +850,7 @@ report_background() {
 		[[ $arg == "$sid" && $shown != *" $pane "* ]] && remove_pane "$pane"
 	done < <(tmux_do list-panes -a -F '#{pane_id} #{@agent_attached}' || true)
 	for pane in $shown; do
-		report_event "$pane" "$kind" "$event" "$detail" "$event_sid" "$name" "$cwd" "$refresh" "$transcript" "$actor" "$sid"
+		report_event "$pane" "$kind" "$event" "$detail" "$event_sid" "$name" "$cwd" "$refresh" "$actor" "$sid"
 	done
 }
 
@@ -895,7 +883,7 @@ sync_attached() {
 		[[ -n $sid ]] || continue
 		IFS=$US read -r state name <<<"$(claude_agents_json | jq -r --arg s "$sid" --arg us "$US" '
 			.[] | select(.sessionId == $s) | "\(.state // "")\($us)\(.name // "")"' 2>/dev/null | head -n 1)"
-		report_event "$pane" claude Attached "$state" "$sid" "$name" '' 0 '' '' "$sid"
+		report_event "$pane" claude Attached "$state" "$sid" "$name" '' 0 '' "$sid"
 	done <<<"$viewers"
 }
 
@@ -999,13 +987,21 @@ sys.stdout.write(data.decode(errors="replace").split("\n")[0])
 	fi
 }
 
-# Print field FIELD of the running Claude session SID from Claude Code's
-# session registry, one JSON file per running session (ADR-0009).
-claude_registry_field() {
-	local sid=$1 field=$2 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions
+# Print the session registry file of the running Claude session SID: Claude
+# Code keeps one JSON file per running session (ADR-0009).
+claude_registry_file() {
+	local sid=$1 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions
 	[[ -d $dir ]] || return 0
-	find "$dir" -maxdepth 1 -name '*.json' -exec jq -r --arg id "$sid" --arg f "$field" \
-		'select(.sessionId == $id) | .[$f] // empty' {} + 2>/dev/null | head -n 1
+	find "$dir" -maxdepth 1 -name '*.json' -exec jq -r --arg id "$sid" \
+		'select(.sessionId == $id) | input_filename' {} + 2>/dev/null | head -n 1
+}
+
+# Print field FIELD of the running Claude session SID from its registry file.
+claude_registry_field() {
+	local file
+	file=$(claude_registry_file "$1")
+	[[ -n $file ]] || return 0
+	jq -r --arg f "$2" '.[$f] // empty' "$file" 2>/dev/null
 }
 
 # Rename the running Claude session SID through its messaging socket.  The
@@ -1305,7 +1301,6 @@ report options:
   --name NAME              agent name shown in the sidebar
   --cwd DIR                agent working directory
   --refresh                refresh the name from Claude in the background
-  --transcript PATH        transcript to watch for interrupts
   --agent ID               subagent actor id (default: main)
   --background             event without a pane: apply it to every viewer
   --background-session ID  background session id (default: --session-id)
@@ -1352,7 +1347,7 @@ main() {
 	esac
 	case "$command" in
 	report)
-		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 transcript='' agent='' background=0 bg_sid=''
+		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 agent='' background=0 bg_sid=''
 		while (($#)); do
 			case "$1" in
 			--pane) pane=$2; shift 2 ;;
@@ -1365,17 +1360,18 @@ main() {
 			--name) name=$2; shift 2 ;;
 			--cwd) cwd=$2; shift 2 ;;
 			--refresh) refresh=1; shift ;;
-			--transcript) transcript=$2; shift 2 ;;
+			# Adapters before ADR-0010 send it; interrupts no longer use it.
+			--transcript) shift 2 ;;
 			--agent) agent=$2; shift 2 ;;
 			*) shift ;;
 			esac
 		done
 		if ((background)); then
-			report_background "$kind" "$event" "$detail" "${bg_sid:-$sid}" "$sid" "$name" "$cwd" "$refresh" "$transcript" "$agent"
+			report_background "$kind" "$event" "$detail" "${bg_sid:-$sid}" "$sid" "$name" "$cwd" "$refresh" "$agent"
 			return 0
 		fi
 		pane=${pane:-${TMUX_PANE:-}}
-		report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$transcript" "$agent"
+		report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$agent"
 		;;
 	tabs)
 		local pane='' active='' cwd='' tabs=()
@@ -1415,17 +1411,16 @@ main() {
 		[[ -n $pane && -n $socket ]] && set_pane_opt "$pane" @agent_socket "$socket"
 		;;
 	watch-interrupt)
-		local pane='' transcript='' token='' offset=''
+		local pane='' sid='' token=''
 		while (($#)); do
 			case "$1" in
 			--pane) pane=$2; shift 2 ;;
-			--transcript) transcript=$2; shift 2 ;;
+			--session-id) sid=$2; shift 2 ;;
 			--token) token=$2; shift 2 ;;
-			--offset) offset=$2; shift 2 ;;
 			*) shift ;;
 			esac
 		done
-		watch_interrupt "$pane" "$transcript" "$token" "$offset"
+		watch_interrupt "$pane" "$sid" "$token"
 		;;
 	refresh-name)
 		local pane='' sid='' bin=''

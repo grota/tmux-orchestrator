@@ -87,18 +87,18 @@ assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_waiters 2>/dev/null 
 "$HOOK" <"$FIX/subagent-other-tool.json"
 assert_eq "$(state)" working
 
-# A prompt with a transcript starts interrupt detection on it.
-TR_DIR=$(mktemp -d)
-TR="$TR_DIR/session.jsonl"
-printf '{"type":"user"}\n' >"$TR"
-printf '{"hook_event_name":"UserPromptSubmit","session_id":"sid-start","cwd":"/tmp/project","session_title":"fix-login-v2","transcript_path":"%s"}\n' "$TR" |
-	TMUX_ORCHESTRATOR_WATCH_TICK=0.2 "$HOOK"
+# A prompt starts interrupt detection on the session's status.
+REG_DIR=$(mktemp -d)
+mkdir -p "$REG_DIR/sessions"
+printf '{"pid":1,"sessionId":"sid-start","status":"busy"}\n' >"$REG_DIR/sessions/1.json"
+printf '{"hook_event_name":"UserPromptSubmit","session_id":"sid-start","cwd":"/tmp/project","session_title":"fix-login-v2"}\n' |
+	CLAUDE_CONFIG_DIR="$REG_DIR" TMUX_ORCHESTRATOR_WATCH_TICK=0.2 "$HOOK"
 assert_eq "$(state)" working
-printf '{"type":"user","isSidechain":false,"message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}\n' >>"$TR"
+printf '{"pid":1,"sessionId":"sid-start","status":"idle"}\n' >"$REG_DIR/sessions/1.json"
 for _ in $(seq 1 30); do [[ $(state) == idle ]] && break; sleep 0.1; done
 assert_eq "$(state)" idle
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_event)" claude:Interrupted
-rm -rf "$TR_DIR"
+rm -rf "$REG_DIR"
 
 "$HOOK" <"$FIX/prompt-title.json"
 "$HOOK" <"$FIX/stop-failure.json"

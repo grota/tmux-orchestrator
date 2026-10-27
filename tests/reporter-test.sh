@@ -147,12 +147,15 @@ assert_eq "$(tmux -L "$S" display -p -t "$PG" '#{pane_dead}')" 1
 assert_eq "$(tmux -L "$S" show-options -pv -t "$PG" @agent_1_state 2>/dev/null || true)" ''
 assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_count)" 3
 
-# A Claude interrupt is read from the transcript (ADR-0006).
+# A Claude interrupt is read from the session status in Claude's session
+# registry (ADR-0010).
 export TMUX_ORCHESTRATOR_WATCH_TICK=0.2
-TR_DIR=$(mktemp -d)
-TR="$TR_DIR/session.jsonl"
-printf '{"type":"user","message":{"content":"start"}}\n' >"$TR"
-watchers() { pgrep -f "watch-interrupt --pane $P0 --transcript $TR" | wc -l | tr -d ' '; }
+SAVED_CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR-}
+export CLAUDE_CONFIG_DIR=$(mktemp -d)
+mkdir -p "$CLAUDE_CONFIG_DIR/sessions"
+REG="$CLAUDE_CONFIG_DIR/sessions/4242.json"
+status() { printf '{"pid":4242,"sessionId":"%s","status":"%s"}\n' "${2:-s0}" "$1" >"$REG"; }
+watchers() { pgrep -f "watch-interrupt --pane $P0 --session-id" | wc -l | tr -d ' '; }
 wait_watchers() {
 	local i
 	for i in $(seq 1 40); do
@@ -169,33 +172,53 @@ wait_state() {
 	done
 	return 1
 }
-"$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --session-id s0 --transcript "$TR"
+prompt() { "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --session-id s0; }
+
+# Busy and waiting change nothing; idle twice in a row is an interrupt.
+status busy
+prompt
 assert_eq "$(opt "$P0" @agent_1_state)" working
 wait_watchers 1
-# A subagent's interrupt, and a line still being written, change nothing.
-printf '{"type":"user","isSidechain":true,"message":{"content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}\n' >>"$TR"
-printf '{"type":"user","isSidechain":false,"message":{"content":[{"type":"text","text":"[Request interrupted' >>"$TR"
-sleep 0.8
+sleep 0.6
+status waiting
+sleep 0.6
 assert_eq "$(opt "$P0" @agent_1_state)" working
-printf ' by user for tool use]"}]}}\n' >>"$TR"
+status idle
 wait_state idle || fail 'interrupt not detected'
 assert_eq "$(opt "$P0" @agent_1_event)" claude:Interrupted
 wait_watchers 0
 
-# A new prompt retires the previous watcher; Stop ends the current one.
-"$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --session-id s0 --transcript "$TR"
-"$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --session-id s0 --transcript "$TR"
+# A turn that completes goes idle just before its Stop hook: it stays done.
+status busy
+prompt
 wait_watchers 1
+status idle
 "$BIN" report --pane "$P0" --kind claude --event Stop --session-id s0
 wait_watchers 0
 assert_eq "$(opt "$P0" @agent_1_state)" done
 
-# A watcher gives up after the idle limit without transcript growth.
-TMUX_ORCHESTRATOR_WATCH_IDLE=1 "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --session-id s0 --transcript "$TR"
+# A new prompt retires the previous watcher.
+status busy
+prompt
+prompt
+wait_watchers 1
+"$BIN" report --pane "$P0" --kind claude --event Stop --session-id s0
+wait_watchers 0
+
+# A replaced session, or one with no registry entry, is left to its events.
+status busy
+prompt
+wait_watchers 1
+status idle other-session
+wait_watchers 0
+assert_eq "$(opt "$P0" @agent_1_state)" working
+rm "$REG"
+prompt
 wait_watchers 1
 wait_watchers 0
 assert_eq "$(opt "$P0" @agent_1_state)" working
-rm -rf "$TR_DIR"
+rm -rf "$CLAUDE_CONFIG_DIR"
+if [[ -n $SAVED_CLAUDE_CONFIG_DIR ]]; then export CLAUDE_CONFIG_DIR=$SAVED_CLAUDE_CONFIG_DIR; else unset CLAUDE_CONFIG_DIR; fi
 unset TMUX_ORCHESTRATOR_WATCH_TICK
 
 # Adapters speaking another protocol are ignored, with one update message.

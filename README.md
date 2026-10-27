@@ -204,7 +204,7 @@ The plugin forwards these hooks to the reporter, which maps them:
 | `PermissionRequest`, `Elicitation`                     | `blocked`                           |
 | `Stop`                                                 | `done` after work, otherwise `idle` |
 | `StopFailure`                                          | `error`                             |
-| interrupt (Esc), read from the transcript              | `idle`                              |
+| interrupt (Esc), read from the session status          | `idle`                              |
 | `SessionEnd`                                           | removed                             |
 
 Subagent tool calls and permission requests count toward the main agent. A
@@ -216,11 +216,11 @@ wait. Parallel tool calls of the same agent cannot be told apart, so one of them
 finishing clears a wait raised by another. A `Stop` after an `error` keeps `error` until new activity.
 
 Claude Code sends no hook when you interrupt a turn with Esc. While a turn runs,
-a background watcher reads the new lines of the session transcript every 3
-seconds and moves the agent to `idle` when Claude Code records the interrupt.
-The watcher stops when the turn ends, when the next prompt starts a new one, when
-the pane closes, or after an hour without transcript activity. It relies on the
-transcript's interrupt text, which Claude Code does not document.
+a background watcher reads the session's status from Claude Code's session
+registry every 2 seconds. When the session is `idle` twice in a row and no `Stop`
+arrived, the agent moves to `idle`. The watcher stops when the turn ends, when
+the next prompt starts a new one, or when the session exits. It relies on the
+registry file, which Claude Code does not document (ADR-0010).
 
 The last hook received is stored in the pane option `@agent_1_event`, for
 example `claude:StopFailure:rate_limit`.
@@ -389,7 +389,8 @@ bash tests/contract/opencode-test.sh
 ```
 
 Each starts a real agent in a private tmux server, sends it no prompt, and needs
-no model. The Claude test needs the checkout to be a folder Claude already
+no model. `TMUX_ORCHESTRATOR_CONTRACT_TURN=1` makes the Claude test also interrupt
+one Haiku turn, to check interrupt detection end to end. The Claude test needs the checkout to be a folder Claude already
 trusts. The OpenCode test uses its own configuration and session store.
 
 ## Known limitations
@@ -397,9 +398,9 @@ trusts. The OpenCode test uses its own configuration and session store.
 - tmux 3.9 or newer is required; there is no fallback sidebar.
 - State is derived from lifecycle events only. A crashed agent that never sends
   `SessionEnd` can leave a stale row until `reconcile`, `gc`, or the pane closes.
-- Claude Code interrupts are read from the session transcript, whose format is
-  undocumented. If a Claude Code update changes the interrupt text, an
-  interrupted agent stays `working` until your next prompt.
+- Claude Code interrupts are read from its session registry, which is
+  undocumented. If a Claude Code update changes it, an interrupted agent stays
+  `working` until your next prompt; `tests/contract/claude-test.sh` detects it.
 - An OpenCode agent on a background tab stays `done` until its tab becomes
   active, even when its pane is focused.
 - Focusing an OpenCode tab from the sidebar needs `python3` or `nc -U`. Without

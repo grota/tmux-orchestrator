@@ -38,3 +38,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `claude attach <id>` resolves by the session's short ID before the session ID prefix.
+- Claude Code interrupts are detected on a session's first prompt and while Claude writes text.
