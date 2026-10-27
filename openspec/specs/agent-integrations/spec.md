@@ -341,11 +341,16 @@ A Claude Code background session SHALL be tracked as an agent of the pane that s
 
 ### Requirement: Attach argument resolution
 
-The attach argument SHALL resolve to the session whose id starts with it. Otherwise it SHALL resolve to the only running background session whose name contains it, ignoring case. If no session or more than one session matches, the argument MUST resolve to nothing.
+The attach argument SHALL resolve to the background session whose short id equals it. Otherwise it SHALL resolve to the session whose session id starts with it, and otherwise to the only running background session whose name contains it, ignoring case. If no session or more than one session matches, the argument MUST resolve to nothing.
 
 #### Scenario: Short id
 
-- **WHEN** the argument is `f7ca13fb` and a session id starts with `f7ca13fb`
+- **WHEN** the argument is `f7ca13fb` and a session's short id is `f7ca13fb`
+- **THEN** the argument resolves to that session
+
+#### Scenario: Short id that does not start the session id
+
+- **WHEN** the argument is `0dd1ab1e`, a session's short id is `0dd1ab1e` and its session id starts with `5e55`
 - **THEN** the argument resolves to that session
 
 #### Scenario: Part of the name
@@ -385,3 +390,40 @@ The system SHALL remove an attached agent from its pane once the pane no longer 
 
 - **WHEN** a selection change happens while a pane runs an ordinary Claude Code session
 - **THEN** that pane's agent is not removed
+
+### Requirement: Claude Code agent rename
+
+The reporter SHALL rename a Claude Code agent session by sending the rename control message to the messaging socket listed for the session in Claude's session registry, and SHALL treat the rename as done only once the registry shows the new name within three seconds. Any other outcome MUST fail the rename with a reason, and there MUST NOT be a fallback that changes only the sidebar.
+
+#### Scenario: Claude confirms
+
+- **WHEN** a Claude agent is renamed and the registry then shows the new name
+- **THEN** the rename succeeds and the agent name is updated
+
+#### Scenario: Claude ignores the message
+
+- **WHEN** a Claude Code update ignores the rename message
+- **THEN** the rename fails with a message that the internal rename message may have changed
+
+### Requirement: OpenCode agent rename
+
+The reporter SHALL rename an OpenCode agent session by sending `rename <sid> <title>` to the adapter's control socket. The adapter SHALL rename the session through the plugin API and answer `ok`, or `error` with the reason. A missing socket, no answer or an error MUST fail the rename with a reason.
+
+#### Scenario: OpenCode refuses
+
+- **WHEN** OpenCode refuses to rename a session
+- **THEN** the rename fails with OpenCode's reason
+
+#### Scenario: Old adapter
+
+- **WHEN** the OpenCode adapter does not answer rename requests
+- **THEN** the rename fails and asks to restart OpenCode
+
+### Requirement: Contract tests for agent internals
+
+The project SHALL provide contract tests that run the installed Claude Code and OpenCode in a private tmux server and check the internals the plugin relies on, without sending a prompt.
+
+#### Scenario: Claude Code update drops the rename message
+
+- **WHEN** the Claude contract test runs against a Claude Code that ignores the rename message
+- **THEN** the test fails and names the missing behaviour

@@ -212,22 +212,32 @@ The sidebar SHALL fit agent names according to `@tmux-orchestrator-name-max-char
 
 ### Requirement: Focused agent emphasis
 
-The sidebar SHALL show the focused agent's name in bold for the client viewing it. Other agents' names MUST NOT be bold, and no extra marker column is added.
+The sidebar SHALL emphasise the focused agent's name for the client viewing it, in the style set by `@tmux-orchestrator-focus-style`: `underlined` (the default), `bold`, or `none`. Any other value MUST behave like `underlined`. The style MUST apply on the next redraw without a reload, and to every line of a wrapped name. Other agents' names MUST NOT be emphasised, and no extra marker column is added.
 
 #### Scenario: Focused Claude agent
 
-- **WHEN** the client views a pane holding one Claude agent
-- **THEN** that agent's name is bold in that client's sidebar
+- **WHEN** the client views a pane holding one Claude agent and the option is unset
+- **THEN** that agent's name is underlined in that client's sidebar
 
 #### Scenario: Focused OpenCode tab
 
 - **WHEN** the client views an OpenCode pane whose active tab is `docs`
-- **THEN** only the `docs` agent's name is bold, not the other tabs of that pane
+- **THEN** only the `docs` agent's name is emphasised, not the other tabs of that pane
 
 #### Scenario: Two clients
 
 - **WHEN** two clients view different agent panes of the same session
-- **THEN** each client's sidebar shows its own focused agent in bold
+- **THEN** each client's sidebar emphasises its own focused agent
+
+#### Scenario: Bold style
+
+- **WHEN** `@tmux-orchestrator-focus-style` is set to `bold`
+- **THEN** the focused agent's name is bold and not underlined, without a reload
+
+#### Scenario: No emphasis
+
+- **WHEN** `@tmux-orchestrator-focus-style` is `none`
+- **THEN** the focused agent's name looks like any other agent's name
 
 ### Requirement: Keys panel
 
@@ -276,3 +286,35 @@ The plugin SHALL bind the toggle key only when that key has no binding in the pr
 
 - **WHEN** the toggle key changes from `O` to `T` and the plugin reloads
 - **THEN** `prefix T` toggles the sidebar and `prefix O` no longer has the plugin's binding
+
+### Requirement: Rename from the sidebar
+
+Double-clicking a session row SHALL open a prompt that renames that tmux session. Double-clicking an agent row SHALL open a prompt prefilled with the agent name, and the answer SHALL rename the agent session in its agent. An empty answer MUST change nothing. The double-click binding MUST NOT be listed in the keys panel.
+
+#### Scenario: Rename a session
+
+- **WHEN** the user double-clicks the `alpha` session row and enters `api`
+- **THEN** the tmux session is renamed `api` and its row shows `api`
+
+#### Scenario: Rename an agent
+
+- **WHEN** the user double-clicks an agent row and enters `it's "$HOME"`
+- **THEN** the agent session is renamed `it's "$HOME"` in its agent, and the row shows that name
+
+### Requirement: Rename answers are literal
+
+A rename answer MUST reach tmux or the agent unchanged, whatever characters it holds, and MUST NOT pass through a shell.
+
+#### Scenario: Special characters
+
+- **WHEN** the user enters `it's "$HOME" ~ #1, ok; \x`
+- **THEN** the new name is exactly that text
+
+### Requirement: Rename failures are visible
+
+A rename the agent does not confirm MUST show the reason to the client and MUST leave the agent name unchanged.
+
+#### Scenario: Agent does not confirm
+
+- **WHEN** the agent does not confirm the rename
+- **THEN** tmux shows a message with the reason and the row keeps the old name
