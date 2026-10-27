@@ -961,13 +961,145 @@ select_agent() {
 	focus_agents
 }
 
+# --- Rename -------------------------------------------------------------------
+
+# Send LINE to the Unix socket SOCKET and print the first reply line, waiting
+# at most WAIT seconds.  With WAIT 0 the line is sent and no reply is read.
+socket_request() {
+	local socket=$1 line=$2 wait=$3
+	if command -v python3 >/dev/null 2>&1; then
+		python3 -I -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(max(float(sys.argv[3]), 1))
+s.connect(sys.argv[1])
+s.sendall((sys.argv[2] + "\n").encode())
+if float(sys.argv[3]) == 0:
+    s.close()
+    sys.exit(0)
+data = b""
+try:
+    while b"\n" not in data:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+except socket.timeout:
+    pass
+sys.stdout.write(data.decode(errors="replace").split("\n")[0])
+' "$socket" "$line" "$wait" 2>/dev/null
+	elif command -v nc >/dev/null 2>&1; then
+		printf '%s\n' "$line" | nc -U -w "$((wait > 0 ? wait : 1))" "$socket" 2>/dev/null | head -n 1
+	else
+		return 1
+	fi
+}
+
+# Print field FIELD of the running Claude session SID from Claude Code's
+# session registry, one JSON file per running session (ADR-0009).
+claude_registry_field() {
+	local sid=$1 field=$2 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions
+	[[ -d $dir ]] || return 0
+	find "$dir" -maxdepth 1 -name '*.json' -exec jq -r --arg id "$sid" --arg f "$field" \
+		'select(.sessionId == $id) | .[$f] // empty' {} + 2>/dev/null | head -n 1
+}
+
+# Rename the running Claude session SID through its messaging socket.  The
+# rename message is internal to Claude Code (ADR-0009), so the rename counts
+# only once the session registry shows the new name.
+rename_claude() {
+	local sid=$1 name=$2 socket i
+	socket=$(claude_registry_field "$sid" messagingSocketPath)
+	if [[ -z $socket || ! -S $socket ]]; then
+		RENAME_ERROR="no running Claude session $sid has a messaging socket"
+		return 1
+	fi
+	socket_request "$socket" "$(jq -cn --arg name "$name" '{type: "control", action: "rename", name: $name}')" 0 >/dev/null
+	for ((i = 0; i < 30; i++)); do
+		[[ $(claude_registry_field "$sid" name) == "$name" ]] && return 0
+		sleep 0.1
+	done
+	RENAME_ERROR="Claude did not apply the rename; its internal rename message may have changed"
+	return 1
+}
+
+# Ask the OpenCode adapter in PANE to rename agent session SID.  It answers
+# "ok" or "error <reason>".
+rename_opencode() {
+	local pane=$1 sid=$2 name=$3 socket reply
+	socket=$(get_pane_opt "$pane" @agent_socket)
+	if [[ -z $socket || ! -S $socket ]]; then
+		RENAME_ERROR='the OpenCode adapter of this pane is not listening'
+		return 1
+	fi
+	reply=$(socket_request "$socket" "rename $sid $name" 3)
+	[[ $reply == ok ]] && return 0
+	RENAME_ERROR=${reply#error }
+	[[ -n $reply ]] || RENAME_ERROR='the OpenCode adapter did not confirm the rename; restart OpenCode to load the current adapter'
+	return 1
+}
+
+# Rename the agent on sidebar row ROW (%P:<slot>) to NAME in the agent itself,
+# then show the new name.  A rename the agent does not confirm fails loudly
+# and leaves the name unchanged.  CLIENT receives the error message.
+rename_agent() {
+	local row=$1 name=$2 client=${3-} pane slot kind sid
+	RENAME_ERROR=''
+	name=$(sanitize_name "$name")
+	[[ -n $row && -n $name ]] || return 0
+	pane=${row%%:*}
+	slot=${row#*:}
+	[[ $row == *:* && $slot =~ ^[0-9]+$ ]] || return 0
+	kind=$(get_pane_opt "$pane" "@agent_${slot}_kind")
+	sid=$(get_pane_opt "$pane" "@agent_${slot}_sid")
+	if [[ -z $sid ]]; then
+		RENAME_ERROR='this agent has no session ID yet'
+	else
+		case "$kind" in
+		claude) rename_claude "$sid" "$name" ;;
+		opencode) rename_opencode "$pane" "$sid" "$name" ;;
+		*) RENAME_ERROR="unknown agent kind: $kind" ;;
+		esac
+	fi
+	if [[ -n $RENAME_ERROR ]]; then
+		printf 'tmux-orchestrator: rename failed: %s\n' "$RENAME_ERROR" >&2
+		tmux_ok display-message ${client:+-c "$client"} -d 5000 "tmux-orchestrator: rename failed: $(escape_hash "$RENAME_ERROR")"
+		return 1
+	fi
+	# The slot may have changed while the agent renamed itself.
+	[[ $(get_pane_opt "$pane" "@agent_${slot}_sid") == "$sid" ]] || return 0
+	set_pane_opt "$pane" "@agent_${slot}_name" "$(escape_hash "$name")"
+	set_pane_opt "$pane" "@agent_${slot}_name_raw" "$name"
+	refresh_clients
+}
+
+# Open a rename prompt in CLIENT for the agent on sidebar row ROW.  The answer
+# reaches the reporter through tmux options, never through a shell command;
+# %%% keeps it literal inside the quotes.  The template holds no pane ID,
+# because tmux reads %<n> in it as an answer.
+rename_prompt() {
+	local row=${1-} client=${2-} pane slot kind name cmd
+	pane=${row%%:*}
+	slot=${row#*:}
+	[[ $row == *:* && $slot =~ ^[0-9]+$ ]] || return 0
+	kind=$(get_pane_opt "$pane" "@agent_${slot}_kind")
+	[[ -n $kind ]] || return 0
+	name=$(get_pane_opt "$pane" "@agent_${slot}_name_raw")
+	cmd="'$SELF_DIR/tmux-orchestrator' rename"
+	[[ -n ${TMUX_SOCKET:-} ]] && cmd="TMUX_SOCKET=$(printf '%q' "$TMUX_SOCKET") $cmd"
+	tmux_ok set-option -g @tmux-orchestrator-rename-row "$row"
+	tmux_ok set-option -g @tmux-orchestrator-rename-client "$client"
+	tmux_ok command-prompt -b -l ${client:+-t "$client"} -I "$(escape_hash "$name")" -p "rename $kind agent:" \
+		"set-option -g @tmux-orchestrator-rename-name \"%%%\" ; run-shell -b \"$cmd\""
+}
+
 # Print the key bindings that call the reporter, one per line as
 # "<table> <key>  <subcommand>", escaped for the sidebar.  The sidebar's own
-# click binding is a fixed mouse action, so it is left out.
+# click bindings are fixed mouse actions, so they are left out.
 keys_list() {
 	local table key cmd sub
 	while IFS='|' read -r table key cmd; do
-		[[ $table == root && $key == MouseDown1Status ]] && continue
+		[[ $table == root && ( $key == MouseDown1Status || $key == DoubleClick1Status ) ]] && continue
 		case "$cmd" in
 		*'#{@tmux-orchestrator-reporter}'*) sub=${cmd#*'#{@tmux-orchestrator-reporter}'} ;;
 		*bin/tmux-orchestrator*) sub=${cmd#*bin/tmux-orchestrator} ;;
@@ -1150,6 +1282,8 @@ usage: tmux-orchestrator <command> [options]
   refresh-name  re-read the agent name from `claude agents --json`
   focus         update the agents of the panes clients view
   select ROW    act on a sidebar row
+  rename ROW NAME  rename the agent on a sidebar row (%P:<slot>) in the agent
+  rename-prompt ROW CLIENT  ask CLIENT for a new name for that agent
   reconcile     rebuild session summaries
   gc            drop agents of dead panes and reconcile
   toggle        enable or disable the sidebar
@@ -1303,6 +1437,20 @@ main() {
 		;;
 	focus) focus_agents ;;
 	select) select_agent "${1-}" ;;
+	rename-prompt) rename_prompt "${1-}" "${2-}" ;;
+	rename)
+		if (($#)); then
+			rename_agent "${1-}" "${2-}"
+		else
+			# The answer of a rename prompt, left in tmux options.
+			local row client name
+			row=$(get_global @tmux-orchestrator-rename-row)
+			client=$(get_global @tmux-orchestrator-rename-client)
+			name=$(get_global @tmux-orchestrator-rename-name)
+			tmux_ok set-option -gu @tmux-orchestrator-rename-row \; set-option -gu @tmux-orchestrator-rename-client \; set-option -gu @tmux-orchestrator-rename-name
+			rename_agent "$row" "$name" "$client"
+		fi
+		;;
 	reconcile) reconcile ;;
 	gc) gc ;;
 	toggle) toggle_sidebar ;;

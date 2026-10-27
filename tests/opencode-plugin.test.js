@@ -22,8 +22,17 @@ async function fakeReporter() {
 
 // A fake TUI whose tabs can change while the plugin runs.
 function fakeTui() {
-  const state = { tabs: [], focused: [], listener: undefined };
+  const state = { tabs: [], focused: [], renamed: [], listener: undefined };
   const api = {
+    client: {
+      session: {
+        update: async ({ sessionID, title }) => {
+          if (sessionID === "ses_gone") throw new Error("Session not found");
+          state.renamed.push([sessionID, title]);
+          return {};
+        },
+      },
+    },
     ui: {
       tabs: {
         enabled: () => true,
@@ -55,7 +64,7 @@ function fakeTui() {
   return { api, state, emit };
 }
 
-test("the TUI plugin reports tabs, events in order, focus and exit", async () => {
+test("the TUI plugin reports tabs, events in order, focus, rename and exit", async () => {
   const { lines } = await fakeReporter();
   process.env.TMUX_PANE = "%7";
   const { default: plugin } = await import("../plugins/opencode/tui.js");
@@ -97,6 +106,19 @@ test("the TUI plugin reports tabs, events in order, focus and exit", async () =>
   });
   await sleep(100);
   assert.deepEqual(tui.state.focused, ["ses_a"]);
+
+  // A rename request is answered on the same connection.
+  const request = (line) =>
+    new Promise((resolve, reject) => {
+      let reply = "";
+      const client = connect(socket, () => client.write(line));
+      client.on("data", (chunk) => (reply += chunk));
+      client.on("close", () => resolve(reply));
+      client.on("error", reject);
+    });
+  assert.equal(await request("rename ses_a new api title\n"), "ok\n");
+  assert.deepEqual(tui.state.renamed, [["ses_a", "new api title"]]);
+  assert.equal(await request("rename ses_gone x\n"), "error OpenCode refused the rename: Session not found\n");
 
   dispose();
   await sleep(300);

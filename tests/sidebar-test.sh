@@ -242,12 +242,26 @@ tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars wrap
 assert_eq "$(lines "$PW")" 3
 tmux -L "$S" set-option -gu @tmux-orchestrator-name-max-chars
 
-# Only the focused agent is bold: the active tab of the viewed pane.
+# The focused agent is the active tab of the viewed pane.
 "$BIN" tabs --pane "$PW" --active ses_b --tab ses_a idle tab-a --tab ses_b idle tab-b
 tmux -L "$S" select-window -t alpha:wrap
 tmux -L "$S" select-pane -t "$PW"
+# Only the focused agent is emphasised: underlined by default, applied live.
+row "$PW" 2 | grep -Fq '#[underscore]' || fail 'focused tab not underlined'
+row "$PW" 1 | grep -Fq '#[underscore]' && fail 'background tab underlined'
+row "$PW" 2 | grep -Fq '#[bold]' && fail 'focused tab bold by default'
+tmux -L "$S" set-option -g @tmux-orchestrator-focus-style bold
 row "$PW" 2 | grep -Fq '#[bold]' || fail 'focused tab not bold'
+row "$PW" 2 | grep -Fq '#[underscore]' && fail 'bold style underlined'
 row "$PW" 1 | grep -Fq '#[bold]' && fail 'background tab bold'
+tmux -L "$S" set-option -g @tmux-orchestrator-focus-style none
+row "$PW" 2 | grep -Eq '#\[(bold|underscore)\]' && fail 'none style emphasised'
+tmux -L "$S" set-option -g @tmux-orchestrator-focus-style banana
+row "$PW" 2 | grep -Fq '#[underscore]' || fail 'invalid style not underlined'
+tmux -L "$S" set-option -gu @tmux-orchestrator-focus-style
+# Every wrapped line of the focused name is emphasised.
+"$BIN" tabs --pane "$PW" --active ses_b --tab ses_a idle tab-a --tab ses_b idle "$(printf 'u%.0s' {1..30})"
+assert_eq "$(row "$PW" 2 | grep -oF '#[underscore]' | wc -l | tr -d ' ')" 2
 "$BIN" remove --pane "$PW"
 tmux -L "$S" kill-pane -t "$PW"
 

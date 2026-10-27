@@ -192,8 +192,22 @@ export function socketPath(pane, pid = process.pid) {
   return { dir: base, path: join(base, `${pane.replace(/[^0-9A-Za-z]/g, "")}-${pid}.sock`) };
 }
 
-// Listens for "focus <sid>" lines from the reporter and focuses that tab.
-function listenForFocus(pane, api, onReady) {
+// Renames agent session SID to TITLE through OpenCode and returns the reply
+// line for the reporter: "ok" or "error <reason>".
+export async function renameSession(api, sid, title) {
+  try {
+    const result = await api.client.session.update({ sessionID: sid, title });
+    if (result?.error) throw result.error;
+    return "ok";
+  } catch (err) {
+    const reason = String(err?.message ?? err?.data?.message ?? err).replace(/\s+/g, " ");
+    return `error OpenCode refused the rename: ${reason}`;
+  }
+}
+
+// Listens for reporter lines: "focus <sid>" focuses that tab, and
+// "rename <sid> <title>" renames that agent session and answers on the line.
+function listenForControl(pane, api, onReady) {
   const { dir, path } = socketPath(pane);
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -209,6 +223,11 @@ function listenForFocus(pane, api, onReady) {
       while ((newline = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, newline).trim();
         buffer = buffer.slice(newline + 1);
+        const rename = /^rename (\S+) (.+)$/.exec(line);
+        if (rename) {
+          renameSession(api, rename[1], rename[2]).then((reply) => connection.end(`${reply}\n`));
+          continue;
+        }
         const match = /^focus (\S+)$/.exec(line);
         if (!match) continue;
         try {
@@ -264,7 +283,7 @@ export function start(api, pane, run = runReporter) {
       // A malformed event is ignored.
     }
   });
-  const stopFocus = listenForFocus(pane, api, (path) => enqueue(["register", "--pane", pane, "--socket", path]));
+  const stopControl = listenForControl(pane, api, (path) => enqueue(["register", "--pane", pane, "--socket", path]));
   poll();
   const timer = setInterval(poll, POLL_MS);
 
@@ -272,7 +291,7 @@ export function start(api, pane, run = runReporter) {
     closed = true;
     clearInterval(timer);
     stopListening?.();
-    stopFocus();
+    stopControl();
     if (running) killGroup(running);
     runDetached(["remove", "--pane", pane]);
   };

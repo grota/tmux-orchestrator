@@ -14,6 +14,7 @@ RUN_SELECT="${REPORTER_PREFIX}'$REPORTER' select"
 RUN_RECONCILE="${REPORTER_PREFIX}'$REPORTER' reconcile"
 RUN_GC="${REPORTER_PREFIX}'$REPORTER' gc"
 RUN_TOGGLE="${REPORTER_PREFIX}'$REPORTER' toggle"
+RUN_RENAME="${REPORTER_PREFIX}'$REPORTER' rename-prompt"
 TMUX=("${TMUX_BIN:-tmux}")
 if [[ -n ${TMUX_SOCKET:-} ]]; then
 	TMUX+=(-L "$TMUX_SOCKET")
@@ -66,6 +67,7 @@ while IFS= read -r line; do
 	focus=*) FMT_FOCUS=${line#focus=} ;;
 	fixed=*) FMT_FIXED=${line#fixed=} ;;
 	nowrap=*) FMT_NOWRAP=${line#nowrap=} ;;
+	emph=*) FMT_EMPH=${line#emph=} ;;
 	name_first=*) FMT_NAME_FIRST=${line#name_first=} ;;
 	name_more=*) FMT_NAME_MORE=${line#name_more=} ;;
 	icon=*) FMT_ICON=${line#icon=} ;;
@@ -103,6 +105,7 @@ for ((line = 2; line <= NAME_LINES; line++)); do
 done
 agent_row=${FMT_AGENT_ROW/\{NAME_FIRST\}/"$FMT_NAME_FIRST"}
 agent_row=${agent_row/\{NAME_MORE\}/"$name_more"}
+agent_row=${agent_row//\{EMPH\}/"$FMT_EMPH"}
 agent_row=${agent_row//\{NOWRAP\}/"$FMT_NOWRAP"}
 agent_row=${agent_row//\{FIXED\}/"$FMT_FIXED"}
 agent_row=${agent_row//\{FOCUS\}/"$FMT_FOCUS"}
@@ -126,6 +129,12 @@ format=${format/\{MORE_ROW\}/"$FMT_MORE_ROW"}
 # The reporter receives the ID and executes select-window/select-pane itself.
 CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{==:#{mouse_status_range},window}' 'switch-client -t= ; select-window -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session},#{!=:#{mouse_status_range},window}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range}\"'"
 "${TMUX[@]}" bind-key -n MouseDown1Status "$CLICK"
+
+# A double click renames: the first click has already switched to the session,
+# so a session row renames the current session, like prefix $.  An agent row
+# asks the reporter, which renames the agent in Claude Code or OpenCode.
+DOUBLE_CLICK="if -F '#{==:#{mouse_status_range},session}' { command-prompt -I '#S' -p 'rename session:' { rename-session -- \"%%%\" } } ; if -F '#{m/r:^%[0-9]+:[0-9]+\$,#{mouse_status_range}}' 'run-shell -b \"$RUN_RENAME #{mouse_status_range} #{client_name}\"'"
+"${TMUX[@]}" bind-key -n DoubleClick1Status "$DOUBLE_CLICK"
 
 # The toggle key never overwrites a user binding.  Our toggle bindings are
 # recognised by the reporter's file name, so one left by a moved checkout or

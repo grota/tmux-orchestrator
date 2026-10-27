@@ -107,7 +107,9 @@ Rows:
   `wrap` (the default), `nowrap` for one line cut to the width, or a number
   such as `20` for one line of at most that many characters.
 - The focused agent, the one in the pane you are viewing (for OpenCode, its
-  active tab), has its name in bold.
+  active tab), has its name underlined.
+  `@tmux-orchestrator-focus-style` changes this at once, with no reload:
+  `underlined` (the default), `bold`, or `none`.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
@@ -116,6 +118,10 @@ Rows:
   row switches to its session, selects its window, and focuses its exact pane.
   For an OpenCode row it also focuses that tab. Clicking `+N more` selects the
   pane.
+- Double-clicking a session row opens a prompt to rename that tmux session.
+  Double-clicking an agent row renames the agent in Claude Code or OpenCode, so
+  other agents and `claude agents` see the new name too. If the agent does not
+  confirm the rename, tmux shows why and the name stays as it was.
 - When there are more rows than fit, the list keeps the focused agent's row
   visible. It may trim session rows first, and it does not scroll the terminal.
 
@@ -125,8 +131,8 @@ reporter, such as the pause bindings under
 [Pause and resume](#pause-and-resume). It reads them when it opens, so bindings
 added later appear the next time.
 
-The plugin rebinds `MouseDown1Status` to handle these clicks, which replaces any
-existing binding for it.
+The plugin rebinds `MouseDown1Status` and `DoubleClick1Status` to handle these
+clicks, which replaces any existing bindings for them.
 
 ### State icons
 
@@ -264,9 +270,10 @@ A completion after `session.execution.failed` keeps `error` until new activity.
 The tab's session title is the agent name. Without a title, the working-directory
 basename is used.
 
-Clicking a tab's row focuses that tab. The reporter sends the request over a
-Unix socket that the TUI opens in `tmux-orchestrator-<uid>/` under
-`$XDG_RUNTIME_DIR`, or under the system temporary directory when it is unset.
+Clicking a tab's row focuses that tab, and double-clicking it renames the tab's
+session. The reporter sends these requests over a Unix socket that the TUI opens
+in `tmux-orchestrator-<uid>/` under `$XDG_RUNTIME_DIR`, or under the system
+temporary directory when it is unset.
 
 ## Optional command line commands
 
@@ -372,6 +379,19 @@ Run the tests with `bash tests/<name>-test.sh` for each shell suite and
 `node --test tests/` for the OpenCode adapter. The tests start private tmux
 servers and do not touch the running one.
 
+Some features rely on internals that Claude Code and OpenCode do not document,
+such as the message that renames a running Claude session. After updating
+either, run the contract tests against the installed versions:
+
+```sh
+bash tests/contract/claude-test.sh
+bash tests/contract/opencode-test.sh
+```
+
+Each starts a real agent in a private tmux server, sends it no prompt, and needs
+no model. The Claude test needs the checkout to be a folder Claude already
+trusts. The OpenCode test uses its own configuration and session store.
+
 ## Known limitations
 
 - tmux 3.9 or newer is required; there is no fallback sidebar.
@@ -396,6 +416,10 @@ servers and do not touch the running one.
 - A very long `? keys` panel fills the sidebar and hides the agent list until
   you close it; the keys panel is not a scrolling list.
 - State disappears when the tmux server exits. There is no external history.
+- Renaming a Claude agent uses an undocumented Claude Code message (see
+  ADR-0009). If an update changes it, renaming fails with a message until the
+  plugin is updated; `tests/contract/claude-test.sh` detects it.
+- Renaming an agent needs `python3` or `nc -U`.
 - The Claude name lookup depends on `claude agents --json`; a missing or slow
   lookup falls back to the directory basename.
 - Desktop delivery depends on `notify-send` or `osascript`; a command that
