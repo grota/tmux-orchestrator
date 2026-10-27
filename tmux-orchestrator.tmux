@@ -15,21 +15,23 @@ RUN_RECONCILE="${REPORTER_PREFIX}'$REPORTER' reconcile"
 RUN_GC="${REPORTER_PREFIX}'$REPORTER' gc"
 RUN_TOGGLE="${REPORTER_PREFIX}'$REPORTER' toggle"
 RUN_RENAME="${REPORTER_PREFIX}'$REPORTER' rename-prompt"
-TMUX=("${TMUX_BIN:-tmux}")
+# Not named TMUX: assigning an array to it drops tmux's own TMUX variable
+# from every command, which then talks to the default server.
+TMUX_CMD=("${TMUX_BIN:-tmux}")
 if [[ -n ${TMUX_SOCKET:-} ]]; then
-	TMUX+=(-L "$TMUX_SOCKET")
+	TMUX_CMD+=(-L "$TMUX_SOCKET")
 fi
 
-if ! "${TMUX[@]}" show-options -g side-status >/dev/null 2>&1; then
-	"${TMUX[@]}" display-message "tmux-orchestrator: tmux 3.9 or newer is required (side-status)" >/dev/null 2>&1 || true
+if ! "${TMUX_CMD[@]}" show-options -g side-status >/dev/null 2>&1; then
+	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: tmux 3.9 or newer is required (side-status)" >/dev/null 2>&1 || true
 	exit 0
 fi
 
-enabled=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-enabled 2>/dev/null || true)
-side=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-side 2>/dev/null || true)
-width=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-width 2>/dev/null || true)
-toggle_key=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-toggle-key 2>/dev/null || true)
-opencode_auto=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-opencode-auto-install 2>/dev/null || true)
+enabled=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-enabled 2>/dev/null || true)
+side=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-side 2>/dev/null || true)
+width=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-width 2>/dev/null || true)
+toggle_key=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-toggle-key 2>/dev/null || true)
+opencode_auto=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-opencode-auto-install 2>/dev/null || true)
 
 [[ -n $enabled ]] || enabled=1
 [[ $side == left || $side == right ]] || side=left
@@ -38,24 +40,24 @@ opencode_auto=$("${TMUX[@]}" show-options -gv @tmux-orchestrator-opencode-auto-i
 [[ -n $toggle_key ]] || toggle_key=O
 
 # Adapters find the reporter of the copy loaded here through this option (ADR-0007).
-"${TMUX[@]}" set-option -g @tmux-orchestrator-reporter "$REPORTER"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-reporter "$REPORTER"
 # Keep the OpenCode adapter linked to this copy when OpenCode is installed.  The
 # server PATH can miss a bin directory added by shell startup files, so the
 # config directory OpenCode creates on first run counts too.
 if [[ $opencode_auto != off ]] && { command -v opencode >/dev/null 2>&1 || [[ -d $HOME/.config/opencode ]]; }; then
 	"$REPORTER" install opencode --quiet >/dev/null 2>&1 || true
 fi
-"${TMUX[@]}" set-option -g @tmux-orchestrator-enabled "$enabled"
-"${TMUX[@]}" set-option -g @tmux-orchestrator-side "$side"
-"${TMUX[@]}" set-option -g @tmux-orchestrator-width "$width"
-"${TMUX[@]}" set-option -g @tmux-orchestrator-toggle-key "$toggle_key"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-enabled "$enabled"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-side "$side"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-width "$width"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-toggle-key "$toggle_key"
 
 if [[ $enabled == 0 ]]; then
-	"${TMUX[@]}" set-option -g side-status off
+	"${TMUX_CMD[@]}" set-option -g side-status off
 else
-	"${TMUX[@]}" set-option -g side-status "$side"
+	"${TMUX_CMD[@]}" set-option -g side-status "$side"
 fi
-"${TMUX[@]}" set-option -g side-status-width "$width"
+"${TMUX_CMD[@]}" set-option -g side-status-width "$width"
 
 # Assemble the sidebar from lib/sidebar-format: one icon fragment for every
 # state, one agent row repeated per slot, and the overflow row (ADR-0004).
@@ -94,7 +96,7 @@ expand_icons() {
 # of this dot string as a regex (ADR-0008).  It covers sidebars up to 500
 # columns wide.
 dots=$(printf '%*s' $((500 * (NAME_LINES - 1))) '')
-"${TMUX[@]}" set-option -g @tmux-orchestrator-dots "${dots// /.}"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-dots "${dots// /.}"
 
 name_more=''
 for ((line = 2; line <= NAME_LINES; line++)); do
@@ -116,47 +118,47 @@ agent_row=${agent_row//\{NW\}/"$FMT_NW"}
 # only this static fragment; agent names are still read with single escaping.
 agent_rows=''
 for ((slot = 1; slot <= VISIBLE_SLOTS; slot++)); do
-	"${TMUX[@]}" set-option -g "@tmux-orchestrator-row-$slot" "$(expand_icons "${agent_row//\{I\}/"$slot"}")"
+	"${TMUX_CMD[@]}" set-option -g "@tmux-orchestrator-row-$slot" "$(expand_icons "${agent_row//\{I\}/"$slot"}")"
 	agent_rows+="#{E:@tmux-orchestrator-row-$slot}"
 done
 format=${FMT_LAYOUT/\{AGENT_ROWS\}/"$agent_rows"}
 format=${format/\{MORE_ROW\}/"$FMT_MORE_ROW"}
-"${TMUX[@]}" set-option -g side-status-format "$(expand_icons "$format")"
+"${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$format")"
 
 # Session rows keep the default switch-client -t= behaviour.  Agent rows use a
 # user range that carries the pane ID: tmux's special mouse target (=) resolves
 # to the active pane for side-status pane ranges, so it cannot select the row.
 # The reporter receives the ID and executes select-window/select-pane itself.
 CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{==:#{mouse_status_range},window}' 'switch-client -t= ; select-window -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session},#{!=:#{mouse_status_range},window}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range}\"'"
-"${TMUX[@]}" bind-key -n MouseDown1Status "$CLICK"
+"${TMUX_CMD[@]}" bind-key -n MouseDown1Status "$CLICK"
 
 # A double click renames: the first click has already switched to the session,
 # so a session row renames the current session, like prefix $.  An agent row
 # asks the reporter, which renames the agent in Claude Code or OpenCode.
 DOUBLE_CLICK="if -F '#{==:#{mouse_status_range},session}' { command-prompt -I '#S' -p 'rename session:' { rename-session -- \"%%%\" } } ; if -F '#{m/r:^%[0-9]+:[0-9]+\$,#{mouse_status_range}}' 'run-shell -b \"$RUN_RENAME #{mouse_status_range} #{client_name}\"'"
-"${TMUX[@]}" bind-key -n DoubleClick1Status "$DOUBLE_CLICK"
+"${TMUX_CMD[@]}" bind-key -n DoubleClick1Status "$DOUBLE_CLICK"
 
 # The toggle key never overwrites a user binding.  Our toggle bindings are
 # recognised by the reporter's file name, so one left by a moved checkout or
 # an earlier toggle key is found and removed too.
 is_our_toggle() { [[ $1 == *bin/tmux-orchestrator*' toggle'* ]]; }
 while IFS='|' read -r key command; do
-	[[ $key != "$toggle_key" ]] && is_our_toggle "$command" && "${TMUX[@]}" unbind-key -T prefix "$key"
-done < <("${TMUX[@]}" list-keys -T prefix -F '#{key_string}|#{key_command}' 2>/dev/null || true)
-existing=$("${TMUX[@]}" list-keys -T prefix -F '#{key_command}' "$toggle_key" 2>/dev/null || true)
+	[[ $key != "$toggle_key" ]] && is_our_toggle "$command" && "${TMUX_CMD[@]}" unbind-key -T prefix "$key"
+done < <("${TMUX_CMD[@]}" list-keys -T prefix -F '#{key_string}|#{key_command}' 2>/dev/null || true)
+existing=$("${TMUX_CMD[@]}" list-keys -T prefix -F '#{key_command}' "$toggle_key" 2>/dev/null || true)
 if [[ -z $existing ]] || is_our_toggle "$existing"; then
-	"${TMUX[@]}" bind-key "$toggle_key" run-shell -b "$RUN_TOGGLE"
+	"${TMUX_CMD[@]}" bind-key "$toggle_key" run-shell -b "$RUN_TOGGLE"
 else
-	"${TMUX[@]}" display-message "tmux-orchestrator: prefix $toggle_key is already bound, so the sidebar toggle key was not bound" >/dev/null 2>&1 || true
+	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: prefix $toggle_key is already bound, so the sidebar toggle key was not bound" >/dev/null 2>&1 || true
 fi
 
 # Fixed indexes make reloads idempotent and preserve other plugins' hooks.
-"${TMUX[@]}" set-hook -g 'after-select-pane[90]' "run-shell -b \"$RUN_FOCUS\""
-"${TMUX[@]}" set-hook -g 'after-select-window[90]' "run-shell -b \"$RUN_FOCUS\""
-"${TMUX[@]}" set-hook -g 'client-session-changed[90]' "run-shell -b \"$RUN_FOCUS\""
-"${TMUX[@]}" set-hook -gw 'pane-exited[90]' "run-shell -b \"$RUN_RECONCILE\""
+"${TMUX_CMD[@]}" set-hook -g 'after-select-pane[90]' "run-shell -b \"$RUN_FOCUS\""
+"${TMUX_CMD[@]}" set-hook -g 'after-select-window[90]' "run-shell -b \"$RUN_FOCUS\""
+"${TMUX_CMD[@]}" set-hook -g 'client-session-changed[90]' "run-shell -b \"$RUN_FOCUS\""
+"${TMUX_CMD[@]}" set-hook -gw 'pane-exited[90]' "run-shell -b \"$RUN_RECONCILE\""
 # remain-on-exit keeps a dead pane instead of firing pane-exited.
-"${TMUX[@]}" set-hook -gw 'pane-died[90]' "run-shell -b \"$RUN_GC\""
-"${TMUX[@]}" set-hook -g 'session-closed[90]' "run-shell -b \"$RUN_RECONCILE\""
+"${TMUX_CMD[@]}" set-hook -gw 'pane-died[90]' "run-shell -b \"$RUN_GC\""
+"${TMUX_CMD[@]}" set-hook -g 'session-closed[90]' "run-shell -b \"$RUN_RECONCILE\""
 
 exit 0

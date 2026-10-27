@@ -10,9 +10,11 @@ ROOT_DIR=$(cd "$SELF_DIR/.." && pwd)
 . "$ROOT_DIR/lib/agent-state.sh"
 
 TMUX_BIN=${TMUX_BIN:-tmux}
-TMUX=("$TMUX_BIN")
+# Not named TMUX: assigning an array to it drops tmux's own TMUX variable
+# from every command, which then talks to the default server.
+TMUX_CMD=("$TMUX_BIN")
 if [[ -n ${TMUX_SOCKET:-} ]]; then
-	TMUX+=(-L "$TMUX_SOCKET")
+	TMUX_CMD+=(-L "$TMUX_SOCKET")
 fi
 
 # The report protocol adapters speak.  It changes only when the commands
@@ -30,7 +32,7 @@ US=$'\x1f'
 RS=$'\x1e'
 
 tmux_do() {
-	"${TMUX[@]}" "$@" 2>/dev/null
+	"${TMUX_CMD[@]}" "$@" 2>/dev/null
 }
 
 tmux_ok() {

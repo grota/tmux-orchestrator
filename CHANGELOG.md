@@ -39,3 +39,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `claude attach <id>` resolves by the session's short ID before the session ID prefix.
 - Claude Code interrupts are detected on a session's first prompt and while Claude writes text.
+- The reporter and the plugin loader act on the tmux server they run in when it is not the default one (`tmux -L` or `-S`).

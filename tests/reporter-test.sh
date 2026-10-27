@@ -147,6 +147,15 @@ assert_eq "$(tmux -L "$S" display -p -t "$PG" '#{pane_dead}')" 1
 assert_eq "$(tmux -L "$S" show-options -pv -t "$PG" @agent_1_state 2>/dev/null || true)" ''
 assert_eq "$(tmux -L "$S" show-options -v -t alpha @agent_count)" 3
 
+# Inside a pane of a server started with -L, the reporter reaches that
+# server through tmux's TMUX variable alone.
+S2="tmux-orchestrator-env-$$"
+tmux -L "$S2" -f /dev/null new-session -d 'sleep 60'
+SOCK2=$(tmux -L "$S2" display -p '#{socket_path}')
+env -u TMUX_SOCKET TMUX="$SOCK2,1,0" "$BIN" report --pane %0 --kind claude --event SessionStart --session-id env1 --name via-env
+assert_eq "$(tmux -L "$S2" show-options -pv -t %0 @agent_1_name_raw 2>/dev/null)" via-env
+tmux -L "$S2" kill-server
+
 # A Claude interrupt is read from the session status in Claude's session
 # registry (ADR-0010).
 export TMUX_ORCHESTRATOR_WATCH_TICK=0.2
