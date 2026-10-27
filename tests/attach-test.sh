@@ -42,10 +42,12 @@ export PATH="$FAKE:$PATH"
 
 SID=f7ca13fb-cca9-405d-9476-1e13f8c6c841
 OTHER=9bed2b17-0000-4000-8000-000000000000
+UNPREFIXED=5e550000-0000-4000-8000-000000000000
 cat >"$FAKE_AGENTS" <<EOF
 [
   {"id": "f7ca13fb", "kind": "background", "sessionId": "$SID", "name": "Agent title wrap settings", "state": "blocked"},
   {"id": "9bed2b17", "kind": "background", "sessionId": "$OTHER", "name": "Agent docs pass", "state": "working"},
+  {"id": "0dd1ab1e", "kind": "background", "sessionId": "$UNPREFIXED", "name": "Agent lint pass", "state": "done"},
   {"id": null, "kind": "interactive", "sessionId": "cafe0000-0000-4000-8000-000000000000", "name": "local", "state": null}
 ]
 EOF
@@ -97,6 +99,13 @@ assert_eq "$(opt "$P0" @agent_1_state)" done
 procs "900 $PID0 Sl+ claude attach agent"
 hook "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$SID\",\"cwd\":\"/tmp\"}"
 assert_eq "$(opt "$P0" @agent_n)" ''
+
+# The short ID resolves even when it does not start the session ID.
+procs "900 $PID0 Sl+ claude attach 0dd1ab1e"
+hook "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$UNPREFIXED\",\"cwd\":\"/tmp\"}"
+assert_eq "$(opt "$P0" @agent_1_sid)" "$UNPREFIXED"
+assert_eq "$(opt "$P0" @agent_attached)" "$UNPREFIXED"
+"$BIN" remove --pane "$P0"
 
 # A suspended viewer does not show its session: the next hook drops it and
 # sends no notification.

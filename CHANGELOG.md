@@ -34,3 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **BREAKING:** `@tmux-orchestrator-opencode` option. Set `@tmux-orchestrator-opencode-auto-install off` to keep the adapter unlinked.
 - **BREAKING:** `@tmux-orchestrator-notify` and `@tmux-orchestrator-notify-via` options. Use the per-channel options; set all three to `off` to replace `notify off`.
+
+### Fixed
+
+- `claude attach <id>` resolves by the session's short ID before the session ID prefix.

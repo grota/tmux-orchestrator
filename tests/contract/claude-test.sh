@@ -74,4 +74,40 @@ NAME=$(claude agents --json 2>/dev/null | jq -r --arg id "$SID" '.[] | select(.s
 [[ $NAME == "$RENAMED" ]] || fail 'claude agents --json does not show the new name'
 pass 'claude agents --json shows the new name'
 
+# Attached background sessions: a session started with --bg and no prompt
+# waits for one, so it costs no model turn.
+BG=$(cd "$ROOT" && env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDECODE \
+	claude --bg -n "$PROBE-bg" </dev/null 2>/dev/null | awk '/^backgrounded/ { print $3; exit }')
+[[ -n $BG ]] || fail 'claude --bg printed no short id'
+trap 'claude stop "$BG" >/dev/null 2>&1; claude rm "$BG" >/dev/null 2>&1; cleanup' EXIT
+BG_JSON=$(claude agents --json 2>/dev/null | jq -c --arg id "$BG" '.[] | select(.id == $id)')
+BG_SID=$(jq -r '.sessionId // empty' <<<"$BG_JSON")
+[[ -n $BG_SID ]] || fail "claude agents --json does not list background session $BG with a sessionId"
+[[ $(jq -r .kind <<<"$BG_JSON") == background ]] || fail 'the background session is not listed as background'
+[[ $(jq -r '.state // empty' <<<"$BG_JSON") =~ ^(working|blocked|done|failed|stopped)$ ]] ||
+	fail "unexpected background state: $(jq -c .state <<<"$BG_JSON")"
+pass 'claude agents --json lists the background session with id, sessionId and state'
+# Observed, not documented; the reporter matches the id first anyway.
+[[ $BG_SID == "$BG"* ]] || printf 'note: the short id %s no longer starts the session id %s\n' "$BG" "$BG_SID"
+
+# `claude attach <id>` in a pane: the reporter finds it in the process table
+# and adopts the session when a client views the pane.
+tmux -L "$S" new-window -d -n attached -c "$ROOT" \
+	"env -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDECODE claude attach $BG"
+ATTACHED=$(tmux -L "$S" display -p -t :attached '#{pane_id}')
+tmux -L "$S" select-window -t :attached
+(env -u TMUX TERM=xterm-256color timeout 30 script -qefc "tmux -L $S attach" /dev/null >/dev/null 2>&1 </dev/null &)
+for _ in $(seq 1 40); do
+	"$BIN" focus
+	[[ $(tmux -L "$S" show-options -pqv -t "$ATTACHED" @agent_attached) == "$BG_SID" ]] && break
+	sleep 0.5
+done
+[[ $(tmux -L "$S" show-options -pqv -t "$ATTACHED" @agent_attached) == "$BG_SID" ]] ||
+	fail "the reporter did not adopt background session $BG shown by claude attach"
+pass 'claude attach is found in the process table and adopted'
+# An unprompted background session waits for its first prompt.
+[[ $(tmux -L "$S" show-options -pqv -t "$ATTACHED" @agent_1_state) == blocked ]] ||
+	fail "the attached row is $(tmux -L "$S" show-options -pqv -t "$ATTACHED" @agent_1_state), not blocked from its state"
+pass 'the attached row takes the state claude agents --json reports'
+
 printf 'claude contract passed\n'

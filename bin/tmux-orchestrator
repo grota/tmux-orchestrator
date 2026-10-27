@@ -825,9 +825,11 @@ attach_viewers() {
 		}'
 }
 
-# Print the background session ARG resolves to: a session ID starting with it,
-# else the only session whose name contains it, ignoring case.  SID, when
-# given, is checked first without asking Claude Code.
+# Print the background session ARG resolves to: the session whose short ID is
+# ARG, else a session ID starting with it, else the only session whose name
+# contains it, ignoring case.  SID, when given, is checked first without
+# asking Claude Code.  The short ID is matched as Claude Code documents it;
+# that it also starts the session ID is observed, not documented.
 attach_session() {
 	local arg=$1 sid=${2-}
 	[[ -n $arg ]] || return 0
@@ -837,8 +839,10 @@ attach_session() {
 	fi
 	claude_agents_json | jq -r --arg a "$arg" '
 		[if type == "array" then .[] else empty end | select(.sessionId)] as $all
+		| [$all[] | select(.id == $a)] as $short
 		| [$all[] | select(.sessionId | startswith($a))] as $ids
-		| if ($ids | length) == 1 then $ids[0].sessionId
+		| if ($short | length) == 1 then $short[0].sessionId
+		  elif ($ids | length) == 1 then $ids[0].sessionId
 		  else [$all[] | select((.name // "") | ascii_downcase | contains($a | ascii_downcase))] as $names
 		  | if ($names | length) == 1 then $names[0].sessionId else empty end
 		  end' 2>/dev/null || true

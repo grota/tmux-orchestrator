@@ -26,19 +26,17 @@ done < <(jq -j '[
 	.agent_id // "",
 	.tool_name // "",
 	.error // "",
-	.notification_type // "",
 	.transcript_path // ""
 ] | map(tostring + "\u0000") | add' 2>/dev/null)
-((${#fields[@]} == 9)) || exit 0
+((${#fields[@]} == 8)) || exit 0
 event=${fields[0]} sid=${fields[1]} cwd=${fields[2]} title=${fields[3]}
-agent_id=${fields[4]} tool=${fields[5]} error=${fields[6]} ntype=${fields[7]}
-transcript=${fields[8]}
+agent_id=${fields[4]} tool=${fields[5]} error=${fields[6]}
+transcript=${fields[7]}
 [[ -n $event ]] || exit 0
 
 case "$event" in
 PreToolUse) detail=$tool ;;
 StopFailure) detail=$error ;;
-Notification) detail=$ntype ;;
 *) detail='' ;;
 esac
 
