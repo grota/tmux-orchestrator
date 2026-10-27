@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Double-clicking an agent row renames the Claude Code or OpenCode agent session.
 - `rename` and `rename-prompt` reporter commands.
 - Contract tests for the Claude Code and OpenCode internals the plugin relies on.
+- A Claude Code agent with subagents shows its main thread's icon and its subagents' rollup and count.
 
 ### Changed
 
@@ -40,3 +41,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `claude attach <id>` resolves by the session's short ID before the session ID prefix.
 - Claude Code interrupts are detected on a session's first prompt and while Claude writes text.
 - The reporter and the plugin loader act on the tmux server they run in when it is not the default one (`tmux -L` or `-S`).
+- A Claude Code agent no longer stays `working` after its last background subagent ends.

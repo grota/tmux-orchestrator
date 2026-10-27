@@ -66,6 +66,8 @@ while IFS= read -r line; do
 	slots=*) VISIBLE_SLOTS=${line#slots=} ;;
 	name_lines=*) NAME_LINES=${line#name_lines=} ;;
 	nw=*) FMT_NW=${line#nw=} ;;
+	nw1=*) FMT_NW1=${line#nw1=} ;;
+	extra=*) FMT_EXTRA=${line#extra=} ;;
 	focus=*) FMT_FOCUS=${line#focus=} ;;
 	fixed=*) FMT_FIXED=${line#fixed=} ;;
 	nowrap=*) FMT_NOWRAP=${line#nowrap=} ;;
@@ -102,7 +104,7 @@ name_more=''
 for ((line = 2; line <= NAME_LINES; line++)); do
 	cut='/{NW}'
 	((line == NAME_LINES)) && cut='/{NW}/…'
-	fragment=${FMT_NAME_MORE//\{OFF\}/"#{e|*:{NW},$((line - 1))}"}
+	fragment=${FMT_NAME_MORE//\{OFF\}/"#{e|-:#{e|*:{NW},$((line - 1))},{EXTRA}}"}
 	name_more+=${fragment//\{CUT\}/"$cut"}
 done
 agent_row=${FMT_AGENT_ROW/\{NAME_FIRST\}/"$FMT_NAME_FIRST"}
@@ -111,6 +113,8 @@ agent_row=${agent_row//\{EMPH\}/"$FMT_EMPH"}
 agent_row=${agent_row//\{NOWRAP\}/"$FMT_NOWRAP"}
 agent_row=${agent_row//\{FIXED\}/"$FMT_FIXED"}
 agent_row=${agent_row//\{FOCUS\}/"$FMT_FOCUS"}
+agent_row=${agent_row//\{NW1\}/"$FMT_NW1"}
+agent_row=${agent_row//\{EXTRA\}/"$FMT_EXTRA"}
 agent_row=${agent_row//\{NW\}/"$FMT_NW"}
 
 # Each slot's row lives in its own option and the format expands it with E:,

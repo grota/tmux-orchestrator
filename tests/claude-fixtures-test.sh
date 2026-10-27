@@ -64,6 +64,12 @@ assert_eq "$(state)" blocked
 "$HOOK" <"$FIX/elicitation-result.json"
 assert_eq "$(state)" working
 
+# SubagentStart lists the subagent for the sidebar without changing the state.
+"$HOOK" <"$FIX/subagent-start.json"
+assert_eq "$(state)" working
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_subagents_n)" 1
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_subagents_state)" working
+
 # A subagent's permission request blocks the main agent without taking its ID.
 "$HOOK" <"$FIX/subagent-permission.json"
 assert_eq "$(state)" blocked

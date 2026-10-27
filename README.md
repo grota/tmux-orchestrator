@@ -110,6 +110,9 @@ Rows:
   active tab), has its name underlined.
   `@tmux-orchestrator-focus-style` changes this at once, with no reload:
   `underlined` (the default), `bold`, or `none`.
+- While a Claude Code agent has subagents, its row shows two icons: its main
+  thread's state, then the most urgent state among its subagents and how many
+  are running, as in `✓ ◐2`. The name gives those columns up.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
@@ -205,6 +208,7 @@ The plugin forwards these hooks to the reporter, which maps them:
 | `Stop`                                                 | `done` after work, otherwise `idle` |
 | `StopFailure`                                          | `error`                             |
 | interrupt (Esc), read from the session status          | `idle`                              |
+| `SubagentStart`                                        | lists the subagent                  |
 | `SessionEnd`                                           | removed                             |
 
 Subagent tool calls and permission requests count toward the main agent. A
@@ -214,6 +218,13 @@ again, a subagent that waits ends (`SubagentStop`), or a new turn starts.
 `PostToolUseFailure` is not treated as an agent error; it only ends that one's
 wait. Parallel tool calls of the same agent cannot be told apart, so one of them
 finishing clears a wait raised by another. A `Stop` after an `error` keeps `error` until new activity.
+
+The sidebar also lists each subagent, from its first event until its
+`SubagentStop`, with its own state. An interrupt drops the list, a background
+subagent comes back with its next event, and one silent for 30 minutes is
+dropped. When the last subagent ends, the agent takes its main thread's state, so
+a background subagent finishing after its main thread does not leave the agent
+`working`.
 
 Claude Code sends no hook when you interrupt a turn with Esc. While a turn runs,
 a background watcher reads the session's status from Claude Code's session

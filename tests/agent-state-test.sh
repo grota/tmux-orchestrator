@@ -61,6 +61,29 @@ w '' 'a1' claude Stop '' main
 w 'a1' 'a1' claude Notification idle_prompt main
 check 'ignore' working claude Notification permission_prompt
 
+# Live subagents: each appears with its own events and goes with SubagentStop.
+sa() {
+	local expected=$1 got
+	shift
+	got=$(agent_subagents "$@")
+	[[ $got == "$expected" ]] || { printf 'FAIL: agent_subagents %s -> [%s], expected [%s]\n' "$*" "$got" "$expected" >&2; FAILS=$((FAILS + 1)); }
+}
+sa 'a1:working:100' '' claude SubagentStart '' a1 100
+sa 'a1:working:100 a2:blocked:110' 'a1:working:100' claude PermissionRequest '' a2 110
+sa 'a2:blocked:110 a1:blocked:120' 'a1:working:100 a2:blocked:110' claude PreToolUse AskUserQuestion a1 120
+sa 'a2:working:130' 'a2:blocked:110' claude PostToolUse '' a2 130
+sa 'a2:blocked:110' 'a1:working:100 a2:blocked:110' claude SubagentStop '' a1 120
+sa 'a1:working:100' 'a1:working:100' claude Stop '' main 120
+sa 'a1:working:100' 'a1:working:100' claude UserPromptSubmit '' main 120
+sa '' 'a1:working:100' claude Interrupted '' main 120
+sa '' 'a1:working:100' claude SessionStart '' main 120
+sa 'a2:working:2000' 'a1:working:100' claude PostToolUse '' a2 2000
+sa 'x' 'x' opencode permission.asked '' a1 100
+got=$(agent_subagents_summary 'a1:working:1 a2:blocked:2 a3:done:3')
+[[ $got == '3 blocked' ]] || { printf 'FAIL: summary [%s]\n' "$got" >&2; FAILS=$((FAILS + 1)); }
+got=$(agent_subagents_summary '')
+[[ $got == '0 ' ]] || { printf 'FAIL: empty summary [%s]\n' "$got" >&2; FAILS=$((FAILS + 1)); }
+
 # An attached background session takes the state Claude Code reports for it.
 check 'set working 0' '' claude Attached working
 check 'set blocked 1' '' claude Attached blocked

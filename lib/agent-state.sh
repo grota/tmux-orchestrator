@@ -111,6 +111,53 @@ agent_waiters() {
 	esac
 }
 
+# Subagents stay listed this long after their last event, so one that ended
+# without SubagentStop does not stay forever.
+AGENT_SUBAGENT_TTL=1800
+
+# agent_subagents SUBAGENTS KIND EVENT DETAIL ACTOR NOW
+# The live subagents of a Claude agent after an event, as space-separated
+# id:state:time entries, from SUBAGENTS before it.  A subagent appears on any
+# of its own events and goes with SubagentStop.  An interrupt or a new session
+# drops them all; a background subagent comes back with its next event.
+agent_subagents() {
+	local subs=${1-} kind=${2-} event=${3-} detail=${4-} actor=${5:-main} now=${6:-0} state='' out='' e
+	if [[ $kind != claude ]]; then
+		printf '%s' "$subs"
+		return 0
+	fi
+	if [[ $actor == main ]]; then
+		case "$event" in
+		SessionStart | SessionEnd | Interrupted) subs='' ;;
+		esac
+	else
+		case "$(agent_event_meaning "$kind" "$event" "$detail"):$event" in
+		*:SubagentStop) state='' ;;
+		wait:*) state=blocked ;;
+		*) state=working ;;
+		esac
+	fi
+	for e in $subs; do
+		[[ ${e%%:*} == "$actor" ]] && continue
+		((now - ${e##*:} < AGENT_SUBAGENT_TTL)) || continue
+		out+="${out:+ }$e"
+	done
+	[[ -n $state ]] && out+="${out:+ }$actor:$state:$now"
+	printf '%s' "$out"
+}
+
+# agent_subagents_summary SUBAGENTS
+# Prints "COUNT STATE": how many subagents are live and their rollup.
+agent_subagents_summary() {
+	local e states=() n=0
+	for e in ${1-}; do
+		e=${e#*:}
+		states+=("${e%%:*}")
+		n=$((n + 1))
+	done
+	printf '%s %s' "$n" "$(agent_rollup ${states[@]+"${states[@]}"})"
+}
+
 # agent_transition PREV KIND EVENT [DETAIL] [WAITING]
 # Prints "set STATE NOTIFY", "forget", or "ignore".  PREV is empty for an agent
 # that is not stored yet.  WAITING is 1 while another actor of the agent still

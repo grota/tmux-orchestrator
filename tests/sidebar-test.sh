@@ -265,6 +265,36 @@ assert_eq "$(row "$PW" 2 | grep -oF '#[underscore]' | wc -l | tr -d ' ')" 2
 "$BIN" remove --pane "$PW"
 tmux -L "$S" kill-pane -t "$PW"
 
+# While a Claude agent has subagents, its row shows the main thread's icon,
+# then the subagents' rollup with their count; the name gives them room.
+tmux -L "$S" new-window -t alpha -n subs 'sleep 300'
+PS=$(tmux -L "$S" display -p -t alpha:subs.0 '#{pane_id}')
+SUBNAME=$(printf 's%.0s' {1..30})
+"$BIN" report --pane "$PS" --kind claude --event UserPromptSubmit --session-id ssub --name "$SUBNAME"
+"$BIN" report --pane "$PS" --kind claude --event SubagentStart --agent a1
+"$BIN" report --pane "$PS" --kind claude --event PermissionRequest --detail Bash --agent a2
+assert_eq "$(opt "$PS" @agent_1_main)" working
+assert_eq "$(opt "$PS" @agent_1_subagents_n)" 2
+assert_eq "$(opt "$PS" @agent_1_subagents_state)" blocked
+assert_eq "$(row "$PS" | plain | head -1)" "◐ ●2 $(printf 's%.0s' {1..22})"
+assert_eq "$(row "$PS" | plain | sed -n 2p)" "  ssssssss"
+# The subagents go with SubagentStop and the row is back to one icon.
+"$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a2
+"$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a1
+assert_eq "$(opt "$PS" @agent_1_subagents_n)" ''
+assert_eq "$(row "$PS" | plain | head -1)" "◐ $(printf 's%.0s' {1..25})"
+# A background subagent working after the main thread is done keeps the
+# agent working; when it ends, the agent is done again.
+"$BIN" report --pane "$PS" --kind claude --event Stop --session-id ssub
+"$BIN" report --pane "$PS" --kind claude --event PostToolUse --agent a3
+assert_eq "$(opt "$PS" @agent_1_state)" working
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ◐1"
+"$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a3
+assert_eq "$(opt "$PS" @agent_1_state)" done
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-2)" "✓ "
+"$BIN" remove --pane "$PS"
+tmux -L "$S" kill-window -t alpha:subs
+
 # The keys panel is closed by default and toggled by its footer row.
 FMT=$(tmux -L "$S" show-options -gv side-status-format)
 [[ $FMT == *'#[align=right]#[range=user|keys]? keys'* ]] || fail 'missing keys footer'
