@@ -94,7 +94,7 @@ dragging.
 Rows:
 
 - A session row shows the rollup icon, session name, how many agents are
-  blocked (`●2`), in error (`×1`) or done (`✓1`), and the agent count. The
+  blocked (`◉2`), in error (`×1`) or done (`✓1`), and the agent count. The
   current session is marked with `▸`.
 - An agent shows the state icon and the agent name, then a grey line with the
   kind (`claude` or `opencode`) and, right-aligned, how long the agent has been
@@ -112,7 +112,7 @@ Rows:
   `underlined` (the default), `bold`, or `none`.
 - While a Claude Code agent has subagents, its row shows two icons: its main
   thread's state, then the most urgent state among its subagents and how many
-  are running, as in `✓ ◐2`. The name gives those columns up.
+  are running, as in `✓ ●2`. The name gives those columns up.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
@@ -141,8 +141,8 @@ clicks, which replaces any existing bindings for them.
 
 | State   | Icon | Colour |
 | ------- | ---- | ------ |
-| working | `◐`  | yellow |
-| blocked | `●`  | red    |
+| working | `●`  | yellow |
+| blocked | `◉`  | red    |
 | error   | `×`  | red    |
 | done    | `✓`  | teal   |
 | idle    | `○`  | green  |
@@ -181,8 +181,8 @@ Set all three to `off` to stop notifications. State tracking continues.
 Notification text is:
 
 ```text
-● fix-login blocked
-● Agent blocked: fix-login
+◉ fix-login blocked
+◉ Agent blocked: fix-login
 ```
 
 Kind and tmux location are deliberately omitted. A client that is viewing the

@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The time in state moved to the agent's kind line, right-aligned.
 - The toggle key is not bound when the key already has a user binding, and a previous toggle key is unbound on reload.
 - `notify status` reports the pause state and each notification channel's setting.
+- **BREAKING:** The `working` icon is a yellow `●` and the `blocked` icon is a red `◉`, in the sidebar and in notifications.
 
 ### Removed
 

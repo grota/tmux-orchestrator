@@ -86,8 +86,8 @@ refresh_clients() {
 
 state_icon() {
 	case "$1" in
-	working) printf '◐' ;;
-	blocked) printf '●' ;;
+	working) printf '●' ;;
+	blocked) printf '◉' ;;
 	error) printf '×' ;;
 	done) printf '✓' ;;
 	idle) printf '○' ;;

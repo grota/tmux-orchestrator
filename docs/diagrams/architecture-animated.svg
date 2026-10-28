@@ -296,14 +296,14 @@
       <rect x="700" y="272" width="186" height="48" rx="8" class="lg-bg lg-working"/>
       <text x="712" y="300" class="row-event">prompt</text>
       <text x="780" y="300" class="row-arrow">→</text>
-      <text x="812" y="300" class="state" font-size="16" fill="var(--yellow)">◐</text>
+      <text x="812" y="300" class="state" font-size="16" fill="var(--yellow)">●</text>
       <text x="836" y="300" class="row-state">working</text>
     </g>
     <g>
       <rect x="700" y="332" width="186" height="48" rx="8" class="lg-bg lg-blocked"/>
       <text x="712" y="360" class="row-event">permission</text>
       <text x="780" y="360" class="row-arrow">→</text>
-      <text x="812" y="360" class="state" font-size="16" fill="var(--red)">●</text>
+      <text x="812" y="360" class="state" font-size="16" fill="var(--red)">◉</text>
       <text x="836" y="360" class="row-state">blocked</text>
     </g>
     <g>
@@ -361,7 +361,7 @@
     <text x="972" y="392" class="mono" font-size="10" fill="var(--green)">▸</text>
     <text x="984" y="392" class="mono" font-size="10" fill="var(--text)">alpha</text>
     <g class="sc-one"><text x="1250" y="392" text-anchor="end" class="mono" font-size="9.5" fill="var(--teal)">✓1</text></g>
-    <g class="sc-blocked"><text x="1250" y="392" text-anchor="end" class="mono" font-size="9.5" fill="var(--red)">●1</text></g>
+    <g class="sc-blocked"><text x="1250" y="392" text-anchor="end" class="mono" font-size="9.5" fill="var(--red)">◉1</text></g>
     <g class="sc-two"><text x="1250" y="392" text-anchor="end" class="mono" font-size="9.5" fill="var(--teal)">✓2</text></g>
     <g class="sc-error"><text x="1250" y="392" text-anchor="end" class="mono" font-size="9.5" fill="var(--red)">×1</text></g>
     <text x="1298" y="392" text-anchor="end" class="mono" font-size="9.5" fill="var(--dim)">3</text>
@@ -369,8 +369,8 @@
     <text x="972" y="422" class="mono" font-size="8.5" letter-spacing=".12em" fill="var(--dim)">AGENTS</text>
 
     <rect x="964" y="430" width="356" height="28" rx="4" fill="#16202c" stroke="var(--stroke2)" stroke-width="1"/>
-    <g class="v-working"><text x="974" y="449" class="state" fill="var(--yellow)">◐</text></g>
-    <g class="v-blocked"><text x="974" y="449" class="state" fill="var(--red)">●</text></g>
+    <g class="v-working"><text x="974" y="449" class="state" fill="var(--yellow)">●</text></g>
+    <g class="v-blocked"><text x="974" y="449" class="state" fill="var(--red)">◉</text></g>
     <g class="v-done"><text x="974" y="449" class="state" fill="var(--teal)">✓</text></g>
     <g class="v-idle"><text x="974" y="449" class="state" fill="var(--green)">○</text></g>
     <g class="v-error"><text x="974" y="449" class="state" fill="var(--red)">×</text></g>
@@ -417,7 +417,7 @@
 
     <text x="1396" y="244" font-size="16" font-weight="600" fill="var(--text)">Notification</text>
 
-    <g class="v-blocked"><text x="1396" y="280" class="state" font-size="18" fill="var(--red)">●</text></g>
+    <g class="v-blocked"><text x="1396" y="280" class="state" font-size="18" fill="var(--red)">◉</text></g>
     <g class="v-error"><text x="1396" y="280" class="state" font-size="18" fill="var(--red)">×</text></g>
     <g class="v-done"><text x="1396" y="280" class="state" font-size="18" fill="var(--teal)">✓</text></g>
     <g class="v-quiet"><text x="1396" y="280" class="state" font-size="18" fill="var(--dim)">·</text></g>

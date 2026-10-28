@@ -51,14 +51,14 @@ report_state "$P1" idle other-agent claude s1
 report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
-assert_contains "$NOTIFY_LOG" '● Agent blocked: fix-login'
+assert_contains "$NOTIFY_LOG" '◉ Agent blocked: fix-login'
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_notified_at 2>/dev/null || true)" ''
 
 # Hostile names are sanitized in both channels; kind and location are absent.
 : >"$NOTIFY_LOG"
 report_state "$P0" working $'evil#[fg=red]\nline' claude s0
 report_state "$P0" blocked $'evil#[fg=red]\nline' claude s0
-assert_contains "$NOTIFY_LOG" '● Agent blocked: evil#[fg=red] line'
+assert_contains "$NOTIFY_LOG" '◉ Agent blocked: evil#[fg=red] line'
 ! grep -q 'claude\|s0' "$NOTIFY_LOG" || fail 'notification leaked kind or location'
 
 # A client viewing the agent suppresses both channels.
@@ -71,15 +71,15 @@ tmux -L "$S" select-pane -t "$P0"
 report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-assert_eq "$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)" 0
+assert_eq "$(grep -acF '◉ fix-login blocked' "$CLIENT_LOG" || true)" 0
 
 # A client on another pane/session gets the tmux message; desktop is still sent.
 tmux -L "$S" select-pane -t "$P1"
 : >"$NOTIFY_LOG"
 report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
-assert_contains "$NOTIFY_LOG" '● Agent blocked: fix-login'
-assert_contains "$CLIENT_LOG" '● fix-login blocked'
+assert_contains "$NOTIFY_LOG" '◉ Agent blocked: fix-login'
+assert_contains "$CLIENT_LOG" '◉ fix-login blocked'
 
 # With two clients, one viewing suppresses desktop but the other still gets tmux.
 tmux -L "$S" select-pane -t "$P0"
@@ -95,7 +95,7 @@ report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 sleep 0.3
-assert_contains "$CLIENT_LOG.2" '● fix-login blocked'
+assert_contains "$CLIENT_LOG.2" '◉ fix-login blocked'
 
 # Focus clears done on every client's own active pane, not just one.
 tmux -L "$S" set-option -p -t "$P0" @agent_1_state done
@@ -148,12 +148,12 @@ assert_contains "$CLIENT_LOG" '✓ fix-login done'
 "$BIN" notify pause
 "$BIN" notify status | grep -q 'notifications: paused' || fail 'pause status'
 : >"$NOTIFY_LOG"
-BEFORE_TMUX=$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)
+BEFORE_TMUX=$(grep -acF '◉ fix-login blocked' "$CLIENT_LOG" || true)
 report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" blocked
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-assert_eq "$(grep -acF '● fix-login blocked' "$CLIENT_LOG" || true)" "$BEFORE_TMUX"
+assert_eq "$(grep -acF '◉ fix-login blocked' "$CLIENT_LOG" || true)" "$BEFORE_TMUX"
 
 "$BIN" notify resume
 "$BIN" notify status | grep -q 'notifications: active' || fail 'resume status'
@@ -171,8 +171,8 @@ report_state "$P0" working default-agent claude s0
 report_state "$P0" blocked default-agent claude s0
 sleep 0.3
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
-assert_contains "$CLIENT_LOG" '● default-agent blocked'
-! grep -aFq $'\e]9;● Agent blocked: default-agent' "$CLIENT_LOG" || fail 'terminal on by default'
+assert_contains "$CLIENT_LOG" '◉ default-agent blocked'
+! grep -aFq $'\e]9;◉ Agent blocked: default-agent' "$CLIENT_LOG" || fail 'terminal on by default'
 
 # The old options are ignored.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify off
@@ -192,7 +192,7 @@ report_state "$P0" working off-agent claude s0
 report_state "$P0" blocked off-agent claude s0
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" blocked
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-! grep -aFq '● off-agent blocked' "$CLIENT_LOG" || fail 'all off still notified'
+! grep -aFq '◉ off-agent blocked' "$CLIENT_LOG" || fail 'all off still notified'
 for ch in tmux desktop terminal; do tmux -L "$S" set-option -gu "@tmux-orchestrator-notify-$ch"; done
 
 # Without a desktop command the desktop channel is silent and tmux still delivers.
@@ -205,7 +205,7 @@ done
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event UserPromptSubmit --name fallback-agent --session-id s0
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" report --pane "$P0" --kind claude --event PermissionRequest --name fallback-agent --session-id s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-grep -aFq '● fallback-agent blocked' "$CLIENT_LOG" || fail 'tmux did not deliver without desktop'
+grep -aFq '◉ fallback-agent blocked' "$CLIENT_LOG" || fail 'tmux did not deliver without desktop'
 env PATH="$NODESK" TMUX_BIN="$NODESK/tmux" /bin/bash "$BIN" notify status >"$TMP_STATUS"
 grep -qF 'desktop: on (unavailable)' "$TMP_STATUS" || fail 'status hid missing desktop command'
 rm -rf "$NODESK"
@@ -216,7 +216,7 @@ tmux -L "$S" set-option -g @tmux-orchestrator-notify-desktop off
 report_state "$P0" working tmux-only claude s0
 report_state "$P0" blocked tmux-only claude s0
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-assert_contains "$CLIENT_LOG" '● tmux-only blocked'
+assert_contains "$CLIENT_LOG" '◉ tmux-only blocked'
 
 # Terminal only: an OSC 9 sequence to the client's terminal and nothing else.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify-tmux off
@@ -226,8 +226,8 @@ report_state "$P0" working term-agent claude s0
 report_state "$P0" blocked term-agent claude s0
 sleep 0.3
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
-assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: term-agent\a'
-! grep -aFq '● term-agent blocked' "$CLIENT_LOG" || fail 'tmux off still sent a message'
+assert_contains "$CLIENT_LOG" $'\e]9;◉ Agent blocked: term-agent\a'
+! grep -aFq '◉ term-agent blocked' "$CLIENT_LOG" || fail 'tmux off still sent a message'
 
 # All three on: each channel delivers.
 tmux -L "$S" set-option -gu @tmux-orchestrator-notify-tmux
@@ -236,8 +236,8 @@ report_state "$P0" working all-agent claude s0
 report_state "$P0" blocked all-agent claude s0
 sleep 0.3
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
-assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: all-agent\a'
-assert_contains "$CLIENT_LOG" '● all-agent blocked'
+assert_contains "$CLIENT_LOG" $'\e]9;◉ Agent blocked: all-agent\a'
+assert_contains "$CLIENT_LOG" '◉ all-agent blocked'
 
 # An unrecognised value means the channel default.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify-terminal yes
@@ -245,7 +245,7 @@ tmux -L "$S" set-option -g @tmux-orchestrator-notify-terminal yes
 report_state "$P0" working yes-agent claude s0
 report_state "$P0" blocked yes-agent claude s0
 sleep 0.3
-! grep -aFq $'\e]9;● Agent blocked: yes-agent' "$CLIENT_LOG" || fail 'unrecognised value enabled terminal'
+! grep -aFq $'\e]9;◉ Agent blocked: yes-agent' "$CLIENT_LOG" || fail 'unrecognised value enabled terminal'
 
 # A control-mode client gets no OSC 9 even when it is the most recently active.
 tmux -L "$S" set-option -g @tmux-orchestrator-notify-terminal on
@@ -256,7 +256,7 @@ report_state "$P0" working control-agent claude s0
 report_state "$P0" blocked control-agent claude s0
 sleep 0.3
 ! grep -aFq $'\e]9;' "$CTL_LOG" || fail 'OSC 9 sent to a control-mode client'
-assert_contains "$CLIENT_LOG" $'\e]9;● Agent blocked: control-agent\a'
+assert_contains "$CLIENT_LOG" $'\e]9;◉ Agent blocked: control-agent\a'
 rm -f "$CTL_LOG"
 tmux -L "$S" set-option -gu @tmux-orchestrator-notify-terminal
 
@@ -281,7 +281,7 @@ tmux -L "$S" select-window -t alpha:tabs
 "$BIN" report --pane "$PT" --kind opencode --event permission.asked --session-id ses_b
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 sleep 0.3
-assert_contains "$CLIENT_LOG" '● back blocked'
+assert_contains "$CLIENT_LOG" '◉ back blocked'
 : >"$NOTIFY_LOG"
 "$BIN" report --pane "$PT" --kind opencode --event permission.asked --session-id ses_a
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0

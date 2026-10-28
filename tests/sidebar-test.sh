@@ -77,12 +77,12 @@ assert_contains "$LOG" 'x#[fg=red]y'
 assert_contains "$LOG" 'opencode'
 assert_contains "$LOG" 'stateless'
 assert_contains "$LOG" 'idle-agent'
-assert_contains "$LOG" '◐'
 assert_contains "$LOG" '●'
+assert_contains "$LOG" '◉'
 assert_contains "$LOG" '×'
 assert_contains "$LOG" '✓'
 # Session rows count the agents that need the user.
-assert_contains "$LOG" '●2'
+assert_contains "$LOG" '◉2'
 assert_contains "$LOG" '✓1'
 assert_contains "$LOG" '×1'
 assert_contains "$LOG" '○'
@@ -212,7 +212,7 @@ row "$PW" | grep -Fq 'claude#[align=right]' || fail 'time not on the kind line'
 report_state "$PW" working "$(printf 'n%.0s' {1..30})" claude sw
 assert_eq "$(lines "$PW")" 3
 assert_eq "$(row "$PW" | plain | sed -n 2p)" "  nnnnn"
-assert_eq "$(row "$PW" | plain | head -1)" "◐ $(printf 'n%.0s' {1..25})"
+assert_eq "$(row "$PW" | plain | head -1)" "● $(printf 'n%.0s' {1..25})"
 
 # More than four lines: four are shown and the last ends in an ellipsis.
 report_state "$PW" working "$(printf 'w%.0s' {1..120})" claude sw
@@ -231,10 +231,10 @@ tmux -L "$S" set-option -g side-status-width 28
 # A fixed limit, nowrap and an invalid value, all applied live.
 report_state "$PW" working refactor-the-login-flow-and-more-words claude sw
 tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars 12
-assert_eq "$(row "$PW" | plain | head -1)" "◐ refactor-the…"
+assert_eq "$(row "$PW" | plain | head -1)" "● refactor-the…"
 assert_eq "$(lines "$PW")" 2
 tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars nowrap
-assert_eq "$(row "$PW" | plain | head -1)" "◐ refactor-the-login-flow-a…"
+assert_eq "$(row "$PW" | plain | head -1)" "● refactor-the-login-flow-a…"
 assert_eq "$(lines "$PW")" 2
 tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars banana
 assert_eq "$(lines "$PW")" 3
@@ -276,19 +276,19 @@ SUBNAME=$(printf 's%.0s' {1..30})
 assert_eq "$(opt "$PS" @agent_1_main)" working
 assert_eq "$(opt "$PS" @agent_1_subagents_n)" 2
 assert_eq "$(opt "$PS" @agent_1_subagents_state)" blocked
-assert_eq "$(row "$PS" | plain | head -1)" "◐ ●2 $(printf 's%.0s' {1..22})"
+assert_eq "$(row "$PS" | plain | head -1)" "● ◉2 $(printf 's%.0s' {1..22})"
 assert_eq "$(row "$PS" | plain | sed -n 2p)" "  ssssssss"
 # The subagents go with SubagentStop and the row is back to one icon.
 "$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a2
 "$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a1
 assert_eq "$(opt "$PS" @agent_1_subagents_n)" ''
-assert_eq "$(row "$PS" | plain | head -1)" "◐ $(printf 's%.0s' {1..25})"
+assert_eq "$(row "$PS" | plain | head -1)" "● $(printf 's%.0s' {1..25})"
 # A background subagent working after the main thread is done keeps the
 # agent working; when it ends, the agent is done again.
 "$BIN" report --pane "$PS" --kind claude --event Stop --session-id ssub
 "$BIN" report --pane "$PS" --kind claude --event PostToolUse --agent a3
 assert_eq "$(opt "$PS" @agent_1_state)" working
-assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ◐1"
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ●1"
 "$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a3
 assert_eq "$(opt "$PS" @agent_1_state)" done
 assert_eq "$(row "$PS" | plain | head -1 | cut -c1-2)" "✓ "

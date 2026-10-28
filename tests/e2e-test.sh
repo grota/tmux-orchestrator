@@ -65,7 +65,7 @@ assert_eq "$(tmux -L "$S" show-options -v -t beta @agent_rollup)" error
 (env -u TMUX TERM=xterm-256color timeout 10 script -qefc "tmux -L $S attach -t alpha" "$CLIENT_LOG" >/dev/null 2>&1) &
 CLIENT_PID=$!
 sleep 1
-for text in Sessions Agents '▸' alpha beta e2e-working e2e-blocked e2e-done e2e-idle e2e-error e2e-unknown '◐' '●' '✓' '○' '×' '·'; do
+for text in Sessions Agents '▸' alpha beta e2e-working e2e-blocked e2e-done e2e-idle e2e-error e2e-unknown '●' '◉' '✓' '○' '×' '·'; do
 	assert_contains "$CLIENT_LOG" "$text"
 done
 
@@ -93,8 +93,8 @@ tmux -L "$S" select-pane -t "$P1"
 : >"$NOTIFY_LOG"
 report_state "$P0" working e2e-working claude s0
 report_state "$P0" blocked e2e-working claude s0
-assert_contains "$NOTIFY_LOG" '● Agent blocked: e2e-working'
-assert_contains "$CLIENT_LOG" '● e2e-working blocked'
+assert_contains "$NOTIFY_LOG" '◉ Agent blocked: e2e-working'
+assert_contains "$CLIENT_LOG" '◉ e2e-working blocked'
 ! grep -q 'claude\|%[0-9]' "$NOTIFY_LOG" || fail 'notification leaked kind or location'
 
 kill "$CLIENT_PID" 2>/dev/null || true
