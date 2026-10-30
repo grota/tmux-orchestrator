@@ -97,9 +97,13 @@ Rows:
   blocked (`◉2`), in error (`×1`) or done (`✓1`), and the agent count. The
   current session is marked with `▸`.
 - An agent shows the state icon and the agent name, then a grey line with the
-  kind (`claude` or `opencode`) and, right-aligned, how long the agent has been
-  in that state (`45s`, `3m12s`, `1h4m`). `set -g @tmux-orchestrator-time off`
-  hides the time at once, with no reload.
+  kind (`claude` or `opencode`) and, right-aligned, the state time: how long
+  since the agent's own events last changed its state (`45s`, `3m12s`, `1h4m`).
+  `set -g @tmux-orchestrator-time off` hides the time at once, with no reload.
+- Viewing a `done` agent clears it to `idle` but keeps its state time running,
+  so you still see how long ago its turn finished.
+  `set -g @tmux-orchestrator-time-on-view reset` restarts the time on view
+  instead; `keep` is the default.
 - Long names wrap over up to four lines, indented under the first one, and the
   fourth ends in `…` if the name still does not fit. Wrapping follows the
   sidebar width, including a dragged border.

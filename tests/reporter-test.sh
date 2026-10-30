@@ -94,12 +94,23 @@ sleep 0.3
 tmux -L "$S" set-option -p -t "$P0" @agent_1_state done
 tmux -L "$S" set-option -p -t "$P1" @agent_1_state done
 tmux -L "$S" set-option -p -t "$P2" @agent_1_state done
+tmux -L "$S" set-option -p -t "$P0" @agent_1_since 100
 ACTIVE=$(tmux -L "$S" display -p -c "$CLIENT_NAME" '#{pane_id}')
 assert_eq "$ACTIVE" "$P0"
 "$BIN" focus
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
+# Viewing keeps the time in state by default.
+assert_eq "$(opt "$P0" @agent_1_since)" 100
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P1" @agent_1_state)" done
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P2" @agent_1_state)" done
+
+# With time-on-view reset, viewing restarts the time in state.
+tmux -L "$S" set-option -p -t "$P0" @agent_1_state done
+tmux -L "$S" set-option -g @tmux-orchestrator-time-on-view reset
+"$BIN" focus
+tmux -L "$S" set-option -gu @tmux-orchestrator-time-on-view
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
+[[ $(opt "$P0" @agent_1_since) -gt 100 ]] || fail 'reset kept the time in state'
 
 # An out-of-range active slot falls back to slot 1 and creates no stray slot.
 tmux -L "$S" set-option -p -t "$P0" @agent_1_state done
@@ -275,9 +286,11 @@ assert_eq "$(opt "$PT" @agent_2_state)" blocked
 assert_eq "$(opt "$PT" @agent_3_sid)" ''
 assert_eq "$(opt "$PT" @agent_active)" 2
 
-# Focusing a done tab inside the TUI clears it.
+# Focusing a done tab inside the TUI clears it and keeps its time in state.
+tmux -L "$S" set-option -p -t "$PT" @agent_1_since 100
 "$BIN" tabs --pane "$PT" --active ses_a --tab ses_a running api --tab ses_c pending 'web app'
 assert_eq "$(opt "$PT" @agent_1_state)" idle
+assert_eq "$(opt "$PT" @agent_1_since)" 100
 assert_eq "$(opt "$PT" @agent_1_event)" opencode:tab.focused
 
 # A wait that loads after its tab appeared turns the known tab blocked once.

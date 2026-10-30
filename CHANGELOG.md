@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `rename` and `rename-prompt` reporter commands.
 - Contract tests for the Claude Code and OpenCode internals the plugin relies on.
 - A Claude Code agent with subagents shows its main thread's icon and its subagents' rollup and count.
+- `@tmux-orchestrator-time-on-view` option: `keep` (default) or `reset`.
 
 ### Changed
 
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README command-line commands are grouped under "Optional command line commands".
 - **BREAKING:** Long agent names wrap over up to four lines by default.
 - The time in state moved to the agent's kind line, right-aligned.
+- **BREAKING:** Viewing a `done` agent no longer restarts its time in the sidebar.
 - The toggle key is not bound when the key already has a user binding, and a previous toggle key is unbound on reload.
 - `notify status` reports the pause state and each notification channel's setting.
 - **BREAKING:** The `working` icon is a yellow `●` and the `blocked` icon is a red `◉`, in the sidebar and in notifications.

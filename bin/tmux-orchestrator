@@ -266,12 +266,22 @@ drop_slot() {
 }
 
 # Give slot I a new state, recording when it changed for the sidebar's
-# time-in-state.
+# state time.
 set_state() {
 	local i=$1 state=$2
 	[[ ${STATE[i]-} == "$state" && -n ${SINCE[i]-} ]] && return 0
 	[[ ${STATE[i]-} == "$state" ]] || STATE[i]=$state
 	SINCE[i]=$(date +%s)
+}
+
+# Give slot I the state that viewing it leads to. Viewing keeps the state
+# time unless @tmux-orchestrator-time-on-view is reset.
+view_state() {
+	local i=$1 state=$2 since
+	since=${SINCE[i]-}
+	set_state "$i" "$state"
+	[[ -n $since && $(get_global @tmux-orchestrator-time-on-view) != reset ]] && SINCE[i]=$since
+	return 0
 }
 
 find_slot() {
@@ -528,7 +538,7 @@ report_event() {
 		return 0
 	fi
 
-	# A new Claude session in the pane starts its own time in state.
+	# A new Claude session in the pane starts its own state time.
 	[[ $kind == claude && -n $i && -n $sid && ${SID[i]-} != "$sid" ]] && SINCE[i]=''
 
 	# An event that changes no state never creates an agent.
@@ -736,7 +746,7 @@ apply_tabs() {
 	if ((N > 0)) && [[ -n $new_active && $active_sid != "$old_active_sid" ]]; then
 		read -r verb next notify <<<"$(agent_transition "${STATE[ACTIVE]}" opencode tab.focused)"
 		if [[ $verb == set ]]; then
-			set_state "$ACTIVE" "$next"
+			view_state "$ACTIVE" "$next"
 			EVENT[ACTIVE]=$(event_label opencode tab.focused)
 		fi
 	fi
@@ -943,7 +953,7 @@ focus_agents() {
 		fi
 		read -r verb next notify <<<"$(agent_transition "${STATE[slot]-}" tmux viewed)"
 		if [[ $verb == set && $next != "${STATE[slot]-}" ]]; then
-			set_state "$slot" "$next"
+			view_state "$slot" "$next"
 			queue set-option -p -t "$pane" "@agent_${slot}_state" "$next"
 			queue set-option -p -t "$pane" "@agent_${slot}_since" "${SINCE[slot]}"
 			write_pane_summary "$pane"

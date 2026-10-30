@@ -40,6 +40,10 @@ _Avoid_: session
 The lifecycle value shown for an agent: `working`, `blocked`, `done`, `idle`, `error`, or `unknown`.
 _Avoid_: status, agent status
 
+**State time**:
+How long since the agent's own agent events last changed its agent state. Viewing the agent does not count as a change.
+_Avoid_: timer, elapsed, age, time in state
+
 **Agent event**:
 A lifecycle event as the agent kind itself names it, such as Claude Code's `PermissionRequest` or OpenCode's `session.idle`, together with its details. Agent state is derived from agent events, plus the user viewing the agent pane.
 _Avoid_: hook, lifecycle event, normalized event

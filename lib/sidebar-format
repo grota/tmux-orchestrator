@@ -12,7 +12,7 @@
 #   {NW1} is the name width of a row's first line: it gives {EXTRA} columns
 #         to the subagent icon and count while a Claude agent has subagents.
 #   {NW}, {FOCUS}, {FIXED} and {NOWRAP} are replaced by the fragments below.
-# @tmux-orchestrator-time off hides the time in state, live.
+# @tmux-orchestrator-time off hides the state time, live.
 # @tmux-orchestrator-name-max-chars (wrap, nowrap or N) is read live.
 # @tmux-orchestrator-focus-style (underlined, bold or none) is read live.
 # tmux drops a range opened in the same #[] block as align=right, so the
