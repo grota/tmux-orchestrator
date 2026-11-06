@@ -454,7 +454,7 @@ Applying the same event or recomputing a session summary multiple times MUST pro
 
 ### Claude Code interrupt detection
 
-Because Claude Code sends no hook when a turn is interrupted, the system SHALL detect an interrupt of a `working` or `blocked` Claude agent from the session status in Claude Code's session registry, and set the agent to `idle` within a few seconds. An interrupt MUST be reported only after two consecutive `idle` readings while the agent is still `working` or `blocked`. Detection MUST stop when the agent leaves `working` and `blocked`, when a new prompt starts a new turn, or when the session's registry entry disappears or names another session.
+Because Claude Code sends no hook when a turn is interrupted, the system SHALL detect an interrupt of a `working` or `blocked` Claude agent from the session status in Claude Code's session registry, and set the agent to `idle` within a few seconds. An interrupt MUST be reported only after two consecutive `idle` or `shell` readings while the agent is still `working` or `blocked`; `shell` is what an idle session with background shells still running reports. Detection MUST stop when the agent leaves `working` and `blocked`, when a new prompt starts a new turn, or when the session's registry entry disappears or names another session.
 
 #### Scenario: Interrupted tool call
 
@@ -465,6 +465,11 @@ Because Claude Code sends no hook when a turn is interrupted, the system SHALL d
 
 - **WHEN** the user presses Esc while Claude writes text on the session's first prompt
 - **THEN** the agent becomes `idle` within a few seconds
+
+#### Scenario: Interrupt with background shells
+
+- **WHEN** the user presses Esc while the agent has a background `Bash` task running
+- **THEN** the registry reads `shell`, and the agent becomes `idle` within a few seconds and keeps its background task
 
 #### Scenario: Subagent interrupt
 
@@ -1460,7 +1465,7 @@ Agent state rules were split between the OpenCode plugin and several reporter fu
 
 ### D6. Claude interrupts are read from the session status
 
-Claude Code sends no hook when the user interrupts a turn, and the `idle_prompt` notification does not fire after an interrupt either, so an interrupted agent would show `working` until its next prompt. Claude Code keeps each running session's `status` (`busy`, `waiting` or `idle`) in its session registry, the same one D9 uses, and `claude agents --json` documents the field. In every test it turned `idle` within a second of Esc, for a tool call and for text. While a turn runs, a watcher reads that status every 2 seconds and reports an interrupt after two `idle` readings in a row while the agent is still `working` or `blocked`. This is a fallback for a named gap, as D1 allows.
+Claude Code sends no hook when the user interrupts a turn, and the `idle_prompt` notification does not fire after an interrupt either, so an interrupted agent would show `working` until its next prompt. Claude Code keeps each running session's `status` (`busy`, `waiting`, `idle`, or `shell` when it is idle with background shells running) in its session registry, the same one D9 uses, and `claude agents --json` documents the field. In every test it turned `idle` within a second of Esc, for a tool call and for text. While a turn runs, a watcher reads that status every 2 seconds and reports an interrupt after two `idle` or `shell` readings in a row while the agent is still `working` or `blocked`. This is a fallback for a named gap, as D1 allows.
 
 **Considered options**
 

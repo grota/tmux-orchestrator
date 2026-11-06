@@ -783,7 +783,9 @@ watch_interrupt() {
 		# was replaced, and its own events take over.
 		entry=$(jq -r '"\(.sessionId) \(.status // "")"' "$registry" 2>/dev/null) || return 0
 		[[ ${entry%% *} == "$sid" ]] || return 0
-		if [[ ${entry#* } == idle ]]; then
+		# A session with background shells left running reads shell, not
+		# idle, once its turn is over.
+		if [[ ${entry#* } == idle || ${entry#* } == shell ]]; then
 			idle=$((idle + 1))
 		else
 			idle=0

@@ -208,6 +208,14 @@ wait_state idle || fail 'interrupt not detected'
 assert_eq "$(opt "$P0" @agent_1_event)" claude:Interrupted
 wait_watchers 0
 
+# A session with background shells running reads shell when its turn stops.
+status busy
+prompt
+wait_watchers 1
+status shell
+wait_state idle || fail 'interrupt with background shells not detected'
+wait_watchers 0
+
 # A turn that completes goes idle just before its Stop hook: it stays done.
 status busy
 prompt
