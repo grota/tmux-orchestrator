@@ -27,7 +27,7 @@ VISIBLE_SLOTS=9
 while IFS= read -r line; do
 	[[ $line == slots=* ]] && VISIBLE_SLOTS=${line#slots=}
 done <"$ROOT_DIR/lib/sidebar-format"
-SLOT_FIELDS='sid kind state since name name_raw event notified_at main subagents subagents_n subagents_state tasks tasks_n'
+SLOT_FIELDS='sid kind state since name name_raw event main subagents subagents_n subagents_state tasks tasks_n'
 US=$'\x1f'
 RS=$'\x1e'
 
@@ -133,7 +133,7 @@ pane_session() {
 # --- Pane agent slots --------------------------------------------------------
 #
 # A pane stores its agents in numbered slots, in tab order:
-#   @agent_n, @agent_<i>_{sid,kind,state,since,name,name_raw,event,notified_at},
+#   @agent_n, @agent_<i>_{sid,kind,state,since,name,name_raw,event},
 #   @agent_active, @agent_pane_rollup, @agent_pane_waiting, @agent_more_n,
 #   @agent_more_state,
 #   @agent_socket.
@@ -154,7 +154,6 @@ KIND=()
 STATE=()
 RAW=()
 EVENT=()
-NOTIFIED=()
 SINCE=()
 
 load_pane() {
@@ -164,8 +163,7 @@ load_pane() {
 	STATE=()
 	RAW=()
 	EVENT=()
-	NOTIFIED=()
-	SINCE=()
+		SINCE=()
 	IFS=$US read -r N ACTIVE WAITERS MAIN SUBS TASKS <<<"$(tmux_do display-message -p -t "$pane" \
 		"#{@agent_n}$US#{@agent_active}$US#{@agent_1_waiters}$US#{@agent_1_main}$US#{@agent_1_subagents}$US#{@agent_1_tasks}" || true)"
 	[[ $N =~ ^[0-9]+$ ]] || N=0
@@ -173,10 +171,10 @@ load_pane() {
 	((N > 0)) || return 0
 	format=''
 	for ((i = 1; i <= N; i++)); do
-		format+="#{@agent_${i}_sid}$US#{@agent_${i}_kind}$US#{@agent_${i}_state}$US#{@agent_${i}_name_raw}$US#{@agent_${i}_event}$US#{@agent_${i}_notified_at}$US#{@agent_${i}_since}$RS"
+		format+="#{@agent_${i}_sid}$US#{@agent_${i}_kind}$US#{@agent_${i}_state}$US#{@agent_${i}_name_raw}$US#{@agent_${i}_event}$US#{@agent_${i}_since}$RS"
 	done
 	i=1
-	while IFS=$US read -r -d "$RS" SID[i] KIND[i] STATE[i] RAW[i] EVENT[i] NOTIFIED[i] SINCE[i]; do
+	while IFS=$US read -r -d "$RS" SID[i] KIND[i] STATE[i] RAW[i] EVENT[i] SINCE[i]; do
 		i=$((i + 1))
 	done <<<"$(tmux_do display-message -p -t "$pane" "$format" || true)"
 }
@@ -190,11 +188,6 @@ write_slot() {
 	queue set-option -p -t "$pane" "@agent_${i}_name" "$(escape_hash "${RAW[i]-}")"
 	queue set-option -p -t "$pane" "@agent_${i}_name_raw" "${RAW[i]-}"
 	queue set-option -p -t "$pane" "@agent_${i}_event" "${EVENT[i]-}"
-	if [[ -n ${NOTIFIED[i]-} ]]; then
-		queue set-option -p -t "$pane" "@agent_${i}_notified_at" "${NOTIFIED[i]}"
-	else
-		queue set-option -pu -t "$pane" "@agent_${i}_notified_at"
-	fi
 }
 
 clear_slot() {
@@ -252,10 +245,9 @@ drop_slot() {
 		STATE[j]=${STATE[j + 1]-}
 		RAW[j]=${RAW[j + 1]-}
 		EVENT[j]=${EVENT[j + 1]-}
-		NOTIFIED[j]=${NOTIFIED[j + 1]-}
 		SINCE[j]=${SINCE[j + 1]-}
 	done
-	unset 'SID[N]' 'KIND[N]' 'STATE[N]' 'RAW[N]' 'EVENT[N]' 'NOTIFIED[N]' 'SINCE[N]'
+	unset 'SID[N]' 'KIND[N]' 'STATE[N]' 'RAW[N]' 'EVENT[N]' 'SINCE[N]'
 	if [[ $ACTIVE =~ ^[0-9]+$ ]]; then
 		if ((ACTIVE == i)); then
 			ACTIVE=1
@@ -612,53 +604,23 @@ attention() {
 }
 
 # Notify for slot I of PANE, which just entered STATE.  Uses the loaded slots.
+# Nothing is sent while any client sees the agent.
 notify_agent() {
 	local pane=$1 i=$2 state=$3 name=${RAW[$2]-}
-	local paused icon msg client cpane any_view=0 tmux_allowed=1
-	local last now sent=0 tmux=0 desktop=0 terminal=0 seers=' '
+	local client cpane desktop=0 terminal=0
 
-	paused=$(get_global @tmux-orchestrator-notify-paused)
-	[[ $paused == 1 ]] && return 0
-
-	channel_on tmux on && tmux=1
+	[[ $(get_global @tmux-orchestrator-notify-paused) == 1 ]] && return 0
 	channel_on desktop on && desktop=1
 	channel_on terminal off && terminal=1
-	((tmux + desktop + terminal)) || return 0
+	((desktop + terminal)) || return 0
 
-	icon=$(state_icon "$state")
-	msg="$icon $name $state"
-
-	# A client that sees the agent gets no tmux message, and channels outside
-	# tmux are suppressed if any client sees it.
 	while IFS=' ' read -r client cpane; do
 		[[ -n $cpane ]] || continue
-		client_views "$cpane" "$pane" "$i" && any_view=1 && seers+=" $client "
+		client_views "$cpane" "$pane" "$i" && return 0
 	done < <(seeing_clients)
 
-	if ((tmux)); then
-		if [[ $state == done ]]; then
-			last=${NOTIFIED[i]-}
-			now=$(date +%s)
-			if [[ -n $last && $last =~ ^[0-9]+$ ]] && ((now - last < 2)); then
-				tmux_allowed=0
-			fi
-		fi
-		if ((tmux_allowed)); then
-			while IFS= read -r client; do
-				[[ -n $client && $seers != *" $client "* ]] || continue
-				tmux_ok display-message -l -c "$client" "$msg" && sent=1
-			done < <(tmux_do list-clients -F '#{client_name}' || true)
-			if ((sent)); then
-				NOTIFIED[i]=$(date +%s)
-				set_pane_opt "$pane" "@agent_${i}_notified_at" "${NOTIFIED[i]}"
-			fi
-		fi
-	fi
-
-	if ((any_view == 0)); then
-		((desktop)) && notify_desktop "$name" "$state" "$pane" "${SID[i]-}"
-		((terminal)) && notify_terminal "$name" "$state"
-	fi
+	((desktop)) && notify_desktop "$name" "$state" "$pane" "${SID[i]-}"
+	((terminal)) && notify_terminal "$name" "$state"
 	return 0
 }
 
@@ -773,7 +735,6 @@ report_event() {
 		i=$N
 		SID[i]=''
 		RAW[i]=''
-		NOTIFIED[i]=''
 	fi
 
 	[[ $verb == set ]] && set_state "$i" "$next"
@@ -908,7 +869,7 @@ apply_tabs() {
 	local pane=$1 active_sid=$2 cwd=$3
 	shift 3
 	local -a tab_sid=() tab_status=() tab_title=()
-	local -a new_sid=() new_kind=() new_state=() new_raw=() new_event=() new_notified=() new_since=() old_state=()
+	local -a new_sid=() new_kind=() new_state=() new_raw=() new_event=() new_since=() old_state=()
 	local count=0 i j old_active_sid='' new_active='' verb next notify raw slot
 	local -a pending_notify=()
 
@@ -930,7 +891,6 @@ apply_tabs() {
 			new_sid+=("${SID[i]}")
 			new_kind+=(opencode)
 			[[ -n $raw ]] || raw=${RAW[i]-}
-			new_notified+=("${NOTIFIED[i]-}")
 			new_since+=("${SINCE[i]-}")
 			old_state+=("${STATE[i]-}")
 			# A known tab whose wait only became visible now.
@@ -949,7 +909,6 @@ apply_tabs() {
 			new_kind+=(opencode)
 			new_state+=("$next")
 			new_event+=("$(event_label opencode tab.opened "${tab_status[j]}")")
-			new_notified+=('')
 			new_since+=('')
 			old_state+=('')
 		fi
@@ -964,14 +923,12 @@ apply_tabs() {
 	STATE=()
 	RAW=()
 	EVENT=()
-	NOTIFIED=()
-	SINCE=()
+		SINCE=()
 	for ((j = 0; j < count; j++)); do
 		SID[j + 1]=${new_sid[j]}
 		KIND[j + 1]=${new_kind[j]}
 		RAW[j + 1]=${new_raw[j]}
 		EVENT[j + 1]=${new_event[j]}
-		NOTIFIED[j + 1]=${new_notified[j]}
 		SINCE[j + 1]=${new_since[j]}
 		STATE[j + 1]=${old_state[j]}
 		set_state "$((j + 1))" "${new_state[j]}"
@@ -1464,14 +1421,14 @@ notify_terminal() {
 notify_status() {
 	local paused desktop channel default value
 	paused=$(get_global @tmux-orchestrator-notify-paused)
-	if ! channel_on tmux on && ! channel_on desktop on && ! channel_on terminal off; then
+	if ! channel_on desktop on && ! channel_on terminal off; then
 		printf 'notifications: off\n'
 	elif [[ $paused == 1 ]]; then
 		printf 'notifications: paused\n'
 	else
 		printf 'notifications: active\n'
 	fi
-	for channel in tmux desktop terminal; do
+	for channel in desktop terminal; do
 		default=on
 		[[ $channel == terminal ]] && default=off
 		value=off

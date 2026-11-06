@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@tmux-orchestrator-raise-command` option, run after a notification click or the attention key to bring the terminal window forward, with `examples/raise-command-niri.sh` for niri.
 - `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.
-- `@tmux-orchestrator-notify-tmux`, `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.
+- `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.
 - `@tmux-orchestrator-name-max-chars` option: `wrap` (default), `nowrap` or a character limit.
 - Keys panel, opened from the `? keys` sidebar row, listing the bindings that call the reporter.
 - The focused agent's name is emphasised in the sidebar.
@@ -45,8 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **BREAKING:** Notifications as tmux status-line messages, with their `done` cooldown.
 - **BREAKING:** `@tmux-orchestrator-opencode` option. Set `@tmux-orchestrator-opencode-auto-install off` to keep the adapter unlinked.
-- **BREAKING:** `@tmux-orchestrator-notify` and `@tmux-orchestrator-notify-via` options. Use the per-channel options; set all three to `off` to replace `notify off`.
+- **BREAKING:** `@tmux-orchestrator-notify` and `@tmux-orchestrator-notify-via` options. Use the per-channel options; set both to `off` to replace `notify off`.
 
 ### Fixed
 

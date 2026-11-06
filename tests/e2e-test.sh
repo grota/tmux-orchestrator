@@ -94,7 +94,8 @@ tmux -L "$S" select-pane -t "$P1"
 report_state "$P0" working e2e-working claude s0
 report_state "$P0" blocked e2e-working claude s0
 assert_contains "$NOTIFY_LOG" '◉ Agent blocked: e2e-working'
-assert_contains "$CLIENT_LOG" '◉ e2e-working blocked'
+sleep 0.3
+! grep -aFq '◉ e2e-working blocked' "$CLIENT_LOG" || fail 'tmux message sent'
 ! grep -q 'claude\|%[0-9]' "$NOTIFY_LOG" || fail 'notification leaked kind or location'
 
 kill "$CLIENT_PID" 2>/dev/null || true

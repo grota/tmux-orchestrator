@@ -104,11 +104,9 @@ are already looking at it.
   on the agent; with a raise command set (see [Options](#options)), its
   terminal window comes forward too. Each agent keeps at most one notification
   on screen: a new one replaces the old one instead of piling up.
-- **tmux messages** appear in the status line of every tmux client that is not
-  showing the agent, for a few seconds. You see one only when you are working
-  in another tmux pane at that very moment; a terminal window in the
-  background also gets it, but you are not looking at it then. If the sidebar
-  already tells you enough, turn this channel off.
+- **Inside tmux, the sidebar is your notification.** Nothing flashes over your
+  status line: the change is already on the sidebar, and it stays there until
+  you deal with it.
 - **Terminal notifications** (OSC 9) work even over SSH, in terminals that
   support them.
 
@@ -132,7 +130,6 @@ ones marked _live_ can also be changed later and apply at once.
 | `@tmux-orchestrator-attention-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
 | `@tmux-orchestrator-attention-table`       | `prefix`     | Key table of the attention key; `root` binds it without the prefix.                            |
 | `@tmux-orchestrator-notify-desktop`        | `on`         | _Live._ Desktop notifications (`notify-send` or `osascript`).                                  |
-| `@tmux-orchestrator-notify-tmux`           | `on`         | _Live._ A message in the status line of the tmux clients not viewing the agent.                |
 | `@tmux-orchestrator-notify-terminal`       | `off`        | _Live._ An OSC 9 notification shown by the terminal (Ghostty, iTerm2, WezTerm), even over SSH. |
 | `@tmux-orchestrator-notify-timeout`        | `5`          | _Live._ Seconds a desktop notification stays open and can be clicked.                          |
 | `@tmux-orchestrator-raise-command`         | unset        | _Live._ Shell command that brings the agent's terminal window forward.                         |
@@ -144,7 +141,6 @@ Examples:
 ```tmux
 set -g @tmux-orchestrator-attention-key M-a
 set -g @tmux-orchestrator-attention-table root   # no prefix needed
-set -g @tmux-orchestrator-notify-tmux off
 set -g @tmux-orchestrator-raise-command '~/.tmux/plugins/tmux-orchestrator/examples/raise-command-niri.sh'
 ```
 
@@ -176,7 +172,8 @@ alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
 Example bindings:
 
 ```tmux
-bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify toggle'
+bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
+bind-key M run-shell -b '#{@tmux-orchestrator-reporter} notify resume'
 ```
 
 ## How it works
@@ -243,16 +240,13 @@ system temporary directory).
 
 ### Notifications
 
-- Notification text is `◉ fix-login blocked` in tmux and `◉ Agent blocked:
-fix-login` on the desktop and terminal. Kind and location are left out.
-- A client viewing the agent (its pane, and for OpenCode its active tab) gets no
-  tmux message. Desktop and terminal notifications are skipped when any client
-  views the agent.
+- Notification text is `◉ Agent blocked: fix-login`. Kind and location are
+  left out.
+- Nothing is sent while any client views the agent: its pane, and for OpenCode
+  its active tab.
 - The plugin turns on tmux's `focus-events`, so a terminal window without focus
   does not count as viewing. The terminal must report focus changes (Ghostty,
   kitty, WezTerm, iTerm2 and foot do).
-- tmux `done` messages have a two-second per-agent cooldown; `blocked` and
-  `error` skip it.
 - A click on a `notify-send` notification brings one client to the agent: the
   one showing its window, else one in its tmux session, else the most recently
   active one. The raise command then runs with `TMUX_ORCHESTRATOR_PANE`,
