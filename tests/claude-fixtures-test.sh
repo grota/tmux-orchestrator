@@ -4,6 +4,7 @@ set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
+. "$ROOT/tests/helpers.sh"
 HOOK=${HOOK:-$ROOT/plugins/claude/hooks/report.sh}
 unset TMUX_ORCHESTRATOR_REPORTER
 FIX="$ROOT/tests/fixtures/claude"

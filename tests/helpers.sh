@@ -1,5 +1,17 @@
 # Shared test helpers.  Sourced after BIN is set.
 
+# Tests never reach the real desktop notifier: silent notify-send and osascript
+# come first on PATH.  A test that checks notifications puts its own fake
+# before them.
+QUIET_BIN="${TMPDIR:-/tmp}/tmux-orchestrator-quiet-bin-$(id -u)"
+if [[ ! -x $QUIET_BIN/notify-send ]]; then
+	mkdir -p "$QUIET_BIN"
+	printf '#!/bin/sh\nexit 0\n' >"$QUIET_BIN/notify-send"
+	printf '#!/bin/sh\nexit 0\n' >"$QUIET_BIN/osascript"
+	chmod +x "$QUIET_BIN/notify-send" "$QUIET_BIN/osascript"
+fi
+export PATH="$QUIET_BIN:$PATH"
+
 # report_state PANE STATE NAME KIND SESSION_ID
 # Reaches STATE through the agent events of KIND.  done is reached through
 # working, because a completion only means done after work.
