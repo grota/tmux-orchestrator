@@ -52,7 +52,7 @@ cat >"$FAKE_AGENTS" <<EOF
 ]
 EOF
 
-tmux -L "$S" new-session -d -s alpha -n main -x 120 -y 40 "$FAKE/viewer/claude 300"
+tmux -L "$S" -f /dev/null new-session -d -s alpha -n main -x 120 -y 40 "$FAKE/viewer/claude 300"
 tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" split-window -t alpha:main -d "$FAKE/viewer/claude 300"
 "$ROOT/tmux-orchestrator.tmux"

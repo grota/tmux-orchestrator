@@ -52,7 +52,7 @@ EOF
 	fail "fake agent did not listen on $2"
 }
 
-tmux -L "$S" new-session -d -s alpha -x 120 -y 40 'sleep 300'
+tmux -L "$S" -f /dev/null new-session -d -s alpha -x 120 -y 40 'sleep 300'
 tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" split-window -t alpha -d 'sleep 300'
 "$ROOT/tmux-orchestrator.tmux"

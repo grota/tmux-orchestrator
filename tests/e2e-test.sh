@@ -29,7 +29,7 @@ fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 assert_eq() { [[ "$1" == "$2" ]] || fail "expected [$2], got [$1]"; }
 assert_contains() { grep -aFq -- "$2" "$1" || fail "missing [$2] in $1"; }
 
-tmux -L "$S" new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
+tmux -L "$S" -f /dev/null new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
 # Keep the developer's real OpenCode plugin link untouched.
 tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" split-window -t alpha:main -d 'sleep 300'

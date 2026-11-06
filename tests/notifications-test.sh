@@ -36,7 +36,7 @@ assert_contains() { grep -aFq -- "$2" "$1" || fail "missing [$2] in $1"; }
 count_lines() { [[ -f "$1" ]] && wc -l <"$1" || printf 0; }
 count_tmux() { grep -acF -- "$1" "$CLIENT_LOG" 2>/dev/null || true; }
 
-tmux -L "$S" new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
+tmux -L "$S" -f /dev/null new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
 # Keep the developer's real OpenCode plugin link untouched.
 tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" split-window -t alpha:main -d 'sleep 300'
