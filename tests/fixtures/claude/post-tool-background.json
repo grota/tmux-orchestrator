@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sid-start","cwd":"/tmp/project","tool_name":"Bash","tool_use_id":"toolu_01JTbgBash","tool_input":{"command":"sleep 60","run_in_background":true},"tool_response":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"bgbash1"}}

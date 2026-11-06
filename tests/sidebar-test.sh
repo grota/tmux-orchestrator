@@ -292,6 +292,40 @@ assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ●1"
 "$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a3
 assert_eq "$(opt "$PS" @agent_1_state)" done
 assert_eq "$(row "$PS" | plain | head -1 | cut -c1-2)" "✓ "
+# Background tasks the main thread launched follow the subagents as a blue
+# dot and their count; the name gives them room too.  A Stop hook's list of
+# running tasks replaces them.
+"$BIN" report --pane "$PS" --kind claude --event UserPromptSubmit --session-id ssub
+"$BIN" report --pane "$PS" --kind claude --event SubagentStart --agent a4
+"$BIN" report --pane "$PS" --kind claude --event PostToolUse --task b1
+"$BIN" report --pane "$PS" --kind claude --event PostToolUse --task b2
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 2
+row "$PS" | grep -Fq '#[fg=blue]·2' || fail 'task dot not blue'
+assert_eq "$(row "$PS" | plain | head -1)" "● ●1 ·2 $(printf 's%.0s' {1..19})"
+# A subagent's background task is not the main thread's.
+"$BIN" report --pane "$PS" --kind claude --event PostToolUse --agent a4 --task b9
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 2
+"$BIN" report --pane "$PS" --kind claude --event Stop --tasks b2
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 1
+assert_eq "$(opt "$PS" @agent_1_main)" done
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-8)" "✓ ●1 ·1 "
+# A task never changes the agent state; with no subagent the row shows the
+# agent's own icon and the tasks.
+"$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a4
+assert_eq "$(opt "$PS" @agent_1_state)" done
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-5)" "✓ ·1 "
+# Esc stops the turn, not the background tasks.
+"$BIN" report --pane "$PS" --kind claude --event UserPromptSubmit
+"$BIN" report --pane "$PS" --kind claude --event Interrupted
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 1
+"$BIN" report --pane "$PS" --kind claude --event Stop --tasks ''
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" ''
+# Launches reported at the same moment (parallel tool calls) all count.
+for k in 1 2 3 4 5 6; do
+	"$BIN" report --pane "$PS" --kind claude --event PostToolUse --task "p$k" &
+done
+wait
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 6
 "$BIN" remove --pane "$PS"
 tmux -L "$S" kill-window -t alpha:subs
 

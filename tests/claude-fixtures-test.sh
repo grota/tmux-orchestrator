@@ -65,6 +65,33 @@ assert_eq "$(state)" blocked
 "$HOOK" <"$FIX/elicitation-result.json"
 assert_eq "$(state)" working
 
+# Background Bash and Monitor launches on the main thread are listed without
+# changing the state; foreground tools and a subagent's launches are not.
+# A Stop hook replaces the list with the main thread's running shell and
+# Monitor tasks; a Stop without that list leaves it alone.
+tasks_n() { tmux -L "$S" show-options -pv -t "$P" @agent_1_tasks_n 2>/dev/null || true; }
+tasks() { tmux -L "$S" show-options -pv -t "$P" @agent_1_tasks 2>/dev/null || true; }
+"$HOOK" <"$FIX/post-tool-foreground.json"
+assert_eq "$(tasks_n)" ''
+"$HOOK" <"$FIX/post-tool-background.json"
+"$HOOK" <"$FIX/post-tool-monitor.json"
+"$HOOK" <"$FIX/subagent-post-tool-background.json"
+assert_eq "$(tasks_n)" 2
+[[ $(tasks) == bgbash1:*' 'toolu_01Erowmonitor:* ]] || fail "task ids: $(tasks)"
+assert_eq "$(state)" working
+"$HOOK" <"$FIX/stop-background-tasks.json"
+assert_eq "$(state)" done
+assert_eq "$(tasks_n)" 1
+[[ $(tasks) == bgbash1:* ]] || fail "Stop list: $(tasks)"
+"$HOOK" <"$FIX/stop.json"
+assert_eq "$(tasks_n)" 1
+jq -c '.background_tasks = []' "$FIX/stop-background-tasks.json" | "$HOOK"
+assert_eq "$(tasks_n)" ''
+# A tool_input that is not an object still reports the event.
+jq -c '.tool_input = "x"' "$FIX/post-tool.json" | "$HOOK"
+assert_eq "$(state)" working
+"$HOOK" <"$FIX/prompt-title.json"
+
 # SubagentStart lists the subagent for the sidebar without changing the state.
 "$HOOK" <"$FIX/subagent-start.json"
 assert_eq "$(state)" working

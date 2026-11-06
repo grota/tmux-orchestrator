@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sid-start","cwd":"/tmp/project","tool_name":"Bash","tool_use_id":"toolu_01foreground","tool_input":{"command":"ls","run_in_background":false}}

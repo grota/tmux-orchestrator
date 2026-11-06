@@ -1,0 +1,1 @@
+{"hook_event_name":"Stop","session_id":"sid-start","cwd":"/tmp/project","background_tasks":[{"id":"bgbash1","type":"shell","status":"running","description":"sleep 60","command":"sleep 60"},{"id":"agent1","type":"subagent","status":"running","description":"Review"},{"id":"bgold","type":"shell","status":"completed","description":"true","command":"true"}]}

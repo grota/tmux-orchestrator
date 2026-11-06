@@ -117,6 +117,9 @@ Rows:
 - While a Claude Code agent has subagents, its row shows two icons: its main
   thread's state, then the most urgent state among its subagents and how many
   are running, as in `✓ ●2`. The name gives those columns up.
+- While a Claude Code agent's main thread has background tasks (`Bash` with
+  `run_in_background`, or `Monitor`), its row adds a blue `·` and how many are
+  running, as in `✓ ●1 ·2`. The name gives those columns up too.
 - A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
   tab order.
 - A pane shows at most nine agent rows. Further agents collapse into one
@@ -254,6 +257,15 @@ subagent comes back with its next event, and one silent for 30 minutes is
 dropped. When the last subagent ends, the agent takes its main thread's state, so
 a background subagent finishing after its main thread does not leave the agent
 `working`.
+
+Background tasks the main thread launches (`Bash` with `run_in_background`, or
+`Monitor`) are listed from their `PostToolUse` hook. Claude Code sends no hook
+when one ends, but each `Stop` hook lists the tasks still running, and the
+sidebar takes that list. When a task ends while the agent is idle, Claude Code
+starts a turn to deliver its result, so the count updates within seconds; inside
+a long turn it updates when the turn ends. Esc keeps the list, a new session
+drops it, and a task no `Stop` has listed for six hours is dropped. Background
+tasks never change the agent state or send notifications.
 
 Claude Code sends no hook when you interrupt a turn with Esc. While a turn runs,
 a background watcher reads the session's status from Claude Code's session

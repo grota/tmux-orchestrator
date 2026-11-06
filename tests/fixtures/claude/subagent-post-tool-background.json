@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sid-child","cwd":"/tmp/project","agent_id":"agent-1","tool_name":"Bash","tool_use_id":"toolu_01subagentbg","tool_input":{"command":"sleep 60","run_in_background":true}}

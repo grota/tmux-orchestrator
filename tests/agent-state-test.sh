@@ -84,6 +84,29 @@ got=$(agent_subagents_summary 'a1:working:1 a2:blocked:2 a3:done:3')
 got=$(agent_subagents_summary '')
 [[ $got == '0 ' ]] || { printf 'FAIL: empty summary [%s]\n' "$got" >&2; FAILS=$((FAILS + 1)); }
 
+# Background tasks: a main-thread launch adds one, and a Stop hook's list of
+# running tasks replaces them.  An interrupt keeps them.
+tk() {
+	local expected=$1 got
+	shift
+	got=$(agent_tasks "$@")
+	[[ $got == "$expected" ]] || { printf 'FAIL: agent_tasks %s -> [%s], expected [%s]\n' "$*" "$got" "$expected" >&2; FAILS=$((FAILS + 1)); }
+}
+tk 't1:100' '' claude PostToolUse main 100 t1 '' 0
+tk 't1:100 t2:110' 't1:100' claude PostToolUse main 110 t2 '' 0
+tk 't1:100' 't1:100' claude PostToolUse main 110 t1 '' 0
+tk 't1:100' 't1:100' claude PostToolUse a1 120 t2 '' 0
+tk 't2:120' 't1:100 t2:110' claude Stop main 120 '' 't2' 1
+tk 't3:120' 't1:100' claude Stop main 120 '' 't3' 1
+tk '' 't1:100' claude Stop main 120 '' '' 1
+tk 't1:100' 't1:100' claude Stop main 120 '' '' 0
+tk 't1:100' 't1:100' claude Interrupted main 120 '' '' 0
+tk '' 't1:100' claude SessionStart main 120 '' '' 0
+tk 't1:100' 't1:100' claude SessionStart a1 120 '' '' 0
+tk 't1:100' 't1:100' claude PostToolUse main 21000 '' '' 0
+tk '' 't1:100' claude PostToolUse main 21700 '' '' 0
+tk 'x' 'x' opencode permission.asked main 100 t1 '' 0
+
 # An attached background session takes the state Claude Code reports for it.
 check 'set working 0' '' claude Attached working
 check 'set blocked 1' '' claude Attached blocked

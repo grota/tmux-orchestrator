@@ -158,6 +158,44 @@ agent_subagents_summary() {
 	printf '%s %s' "$n" "$(agent_rollup ${states[@]+"${states[@]}"})"
 }
 
+# A background task stays listed this long after its launch, or after the last
+# Stop hook that listed it, so one whose end was missed does not stay forever.
+AGENT_TASK_TTL=21600
+
+# agent_tasks TASKS KIND EVENT ACTOR NOW STARTED SNAPSHOT HAS_SNAPSHOT
+# The running background tasks of a Claude agent's main thread after an
+# event, as space-separated id:time entries, from TASKS before it.  STARTED is
+# the ID of a task the event launched; only a main-thread launch counts.  A
+# Stop hook lists the running tasks (HAS_SNAPSHOT 1, SNAPSHOT the IDs), and
+# that list replaces the old one and restarts each task's time (SPEC.md D11).
+# A new or ended session drops them all.  An interrupt does not: background
+# tasks keep running after Esc.  Background tasks never change the state.
+agent_tasks() {
+	local tasks=${1-} kind=${2-} event=${3-} actor=${4:-main} now=${5:-0} started=${6-}
+	local snapshot=${7-} has_snapshot=${8:-0} out='' e id
+	if [[ $kind != claude || $actor != main ]]; then
+		printf '%s' "$tasks"
+		return 0
+	fi
+	case "$event" in
+	SessionStart | SessionEnd) tasks='' ;;
+	esac
+	if [[ $has_snapshot == 1 ]]; then
+		for id in $snapshot; do
+			out+="${out:+ }$id:$now"
+		done
+		printf '%s' "$out"
+		return 0
+	fi
+	for e in $tasks; do
+		((now - ${e##*:} < AGENT_TASK_TTL)) || continue
+		[[ ${e%:*} == "$started" ]] && started=''
+		out+="${out:+ }$e"
+	done
+	[[ -n $started ]] && out+="${out:+ }$started:$now"
+	printf '%s' "$out"
+}
+
 # agent_transition PREV KIND EVENT [DETAIL] [WAITING]
 # Prints "set STATE NOTIFY", "forget", or "ignore".  PREV is empty for an agent
 # that is not stored yet.  WAITING is 1 while another actor of the agent still

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sid-start","cwd":"/tmp/project","tool_name":"Monitor","tool_use_id":"toolu_01Erowmonitor","tool_input":{"command":"tail -f app.log","description":"errors in app.log","timeout_ms":300000}}

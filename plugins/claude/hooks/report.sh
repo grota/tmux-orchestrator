@@ -25,12 +25,28 @@ done < <(jq -j '[
 	.session_title // "",
 	.agent_id // "",
 	.tool_name // "",
-	.error // ""
+	.error // "",
+	(.tool_response.backgroundTaskId? // .tool_response.taskId? // .tool_use_id // ""),
+	(.tool_input.run_in_background? // false),
+	has("background_tasks"),
+	([.background_tasks[]? | select(.status == "running" and (.type == "shell" or .type == "monitor")) | .id] | join(" "))
 ] | map(tostring + "\u0000") | add' 2>/dev/null)
-((${#fields[@]} == 7)) || exit 0
+((${#fields[@]} == 11)) || exit 0
 event=${fields[0]} sid=${fields[1]} cwd=${fields[2]} title=${fields[3]}
 agent_id=${fields[4]} tool=${fields[5]} error=${fields[6]}
+task_id=${fields[7]} background=${fields[8]}
+has_tasks=${fields[9]} running=${fields[10]}
 [[ -n $event ]] || exit 0
+
+# A main-thread background task: Bash with run_in_background, or a Monitor,
+# which always runs in the background.  No hook reports its end; the Stop hook
+# lists the tasks still running (SPEC.md D11).
+task=''
+if [[ $event == PostToolUse && -z $agent_id && -n $task_id ]]; then
+	case "$tool:$background" in
+	Bash:true | Monitor:*) task=$task_id ;;
+	esac
+fi
 
 case "$event" in
 PreToolUse) detail=$tool ;;
@@ -65,6 +81,8 @@ fi
 [[ -n $sid ]] && args+=(--session-id "$sid")
 [[ -n $agent_id ]] && args+=(--agent "$agent_id")
 [[ -n $cwd ]] && args+=(--cwd "$cwd")
+[[ -n $task ]] && args+=(--task "$task")
+[[ $event == Stop && -z $agent_id && $has_tasks == true ]] && args+=(--tasks "$running")
 case "$event" in
 SessionStart | UserPromptSubmit)
 	# A supplied title is authoritative; only look one up when it is absent.
