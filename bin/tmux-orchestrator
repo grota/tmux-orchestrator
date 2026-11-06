@@ -455,10 +455,10 @@ notify_click() {
 }
 
 # The client to bring to PANE: one already showing its window, then one in its
-# tmux session, then the most recently active one.  Control-mode clients have
-# no screen and are skipped.
+# tmux session, then FALLBACK if given, else the most recently active one.
+# Control-mode clients have no screen and are skipped.
 focus_client() {
-	local pane=$1 window session best='' best_rank=-1 best_act=-1
+	local pane=$1 fallback=${2-} window session best='' best_rank=-1 best_act=-1
 	local act name cwin csess rank
 	IFS=' ' read -r window session <<<"$(tmux_do display-message -p -t "$pane" '#{window_id} #{session_id}')"
 	[[ -n $window ]] || return 0
@@ -472,19 +472,23 @@ focus_client() {
 		fi
 	done < <(tmux_do list-clients -f '#{!=:#{client_control_mode},1}' \
 		-F '#{client_activity} #{client_name} #{window_id} #{session_id}' || true)
+	((best_rank == 0)) && [[ -n $fallback ]] && best=$fallback
 	printf '%s' "$best"
 }
 
 # Bring a client to the agent of PANE with agent session SID (its OpenCode tab
-# too), then run @tmux-orchestrator-notify-command, if set, so it can raise the
+# too), then run @tmux-orchestrator-raise-command, if set, so it can raise the
 # terminal window.  The command gets the pane and client in its environment.
+# FALLBACK is the client to use when none already shows the agent's session.
 focus_agent() {
-	local pane=$1 sid=${2-} client slot='' i n command cpid='' ctty='' session
+	local pane=$1 sid=${2-} fallback=${3-} client slot='' i n command cpid='' ctty='' session
 	[[ -n $(tmux_do display-message -p -t "$pane" '#{pane_id}') ]] || return 0
-	client=$(focus_client "$pane")
+	client=$(focus_client "$pane" "$fallback")
 	if [[ -n $client ]]; then
 		tmux_ok switch-client -c "$client" -t "$pane"
-		IFS=' ' read -r cpid ctty <<<"$(tmux_do display-message -p -c "$client" '#{client_pid} #{client_tty}')"
+		IFS=' ' read -r cpid ctty <<<"$(tmux_do list-clients -F '#{client_name} #{client_pid} #{client_tty}' | while read -r c p t; do
+			[[ $c == "$client" ]] && printf '%s %s' "$p" "$t"
+		done)"
 	fi
 	tmux_ok select-window -t "$pane"
 	tmux_ok select-pane -t "$pane"
@@ -499,13 +503,60 @@ focus_agent() {
 		fi
 	fi
 	focus_agents
-	command=$(get_global @tmux-orchestrator-notify-command)
+	command=$(get_global @tmux-orchestrator-raise-command)
 	[[ -n $command ]] || return 0
 	session=$(tmux_do display-message -p -t "$pane" '#{session_name}')
 	TMUX_ORCHESTRATOR_PANE=$pane TMUX_ORCHESTRATOR_SESSION=$session \
 		TMUX_ORCHESTRATOR_CLIENT=$client TMUX_ORCHESTRATOR_CLIENT_PID=$cpid \
 		TMUX_ORCHESTRATOR_CLIENT_TTY=$ctty \
 		sh -c "$command" </dev/null >/dev/null 2>&1 || true
+}
+
+# attention CLIENT
+# Bring CLIENT, or a client already showing it, to the agent that most needs
+# attention: blocked, then error, then done, the longest waiting first, across
+# every tmux session.  When CLIENT already views one of them, the next one in
+# that order is chosen, wrapping around, so repeated presses go through all.
+attention() {
+	local client=$1 pane i rank cur slot entry sorted next='' first='' found=0
+	local -a list=()
+	[[ -n $client ]] || return 0
+	while IFS= read -r pane; do
+		[[ -n $pane ]] || continue
+		load_pane "$pane"
+		for ((i = 1; i <= N; i++)); do
+			case "${STATE[i]-}" in
+			blocked) rank=0 ;;
+			error) rank=1 ;;
+			done) rank=2 ;;
+			*) continue ;;
+			esac
+			list+=("$rank ${SINCE[i]:-0} $pane $i ${SID[i]:--}")
+		done
+	done < <(tmux_do list-panes -a -F '#{?#{@agent_n},#{pane_id},}' || true)
+	if ((${#list[@]} == 0)); then
+		tmux_ok display-message -c "$client" 'No agent needs attention'
+		return 0
+	fi
+	# display-message -c does not read the client's own pane, list-clients does.
+	cur=$(tmux_do list-clients -F '#{client_name} #{pane_id}' | while read -r c pane; do
+		[[ $c == "$client" ]] && printf '%s' "$pane"
+	done)
+	slot=$(viewed_slot "$cur")
+	sorted=$(printf '%s\n' "${list[@]}" | sort -k1,1n -k2,2n -k3,3 -k4,4n)
+	while IFS= read -r entry; do
+		[[ -n $first ]] || first=$entry
+		if ((found)); then
+			next=$entry
+			break
+		fi
+		read -r _ _ pane i _ <<<"$entry"
+		[[ $pane == "$cur" && $i == "$slot" ]] && found=1
+	done <<<"$sorted"
+	[[ -n $next ]] || next=$first
+	read -r _ _ pane i entry <<<"$next"
+	[[ $entry == - ]] && entry=''
+	focus_agent "$pane" "$entry" "$client"
 }
 
 # Notify for slot I of PANE, which just entered STATE.  Uses the loaded slots.
@@ -1477,6 +1528,7 @@ usage: tmux-orchestrator <command> [options]
   refresh-name  re-read the agent name from `claude agents --json`
   focus         update the agents of the panes clients view
   focus-agent   bring a client to an agent: --pane ID [--session-id ID]
+  attention CLIENT  bring CLIENT to the next agent that needs attention
   select ROW    act on a sidebar row
   rename ROW NAME  rename the agent on a sidebar row (%P:<slot>) in the agent
   rename-prompt ROW CLIENT  ask CLIENT for a new name for that agent
@@ -1612,6 +1664,7 @@ main() {
 		pane=${pane:-${TMUX_PANE:-}}
 		[[ -n $pane && -n $socket ]] && set_pane_opt "$pane" @agent_socket "$socket"
 		;;
+	attention) attention "${1-}" ;;
 	focus-agent)
 		local pane='' sid=''
 		while (($#)); do

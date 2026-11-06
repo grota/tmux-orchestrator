@@ -300,7 +300,7 @@ assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 # notify command.  The client already in the agent's session wins over a more
 # recently active client elsewhere.
 CMD_LOG="$FAKE/command.log"
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-command \
+tmux -L "$S" set-option -g @tmux-orchestrator-raise-command \
 	"printf '%s|%s|%s|%s\\n' \"\$TMUX_ORCHESTRATOR_PANE\" \"\$TMUX_ORCHESTRATOR_SESSION\" \"\$TMUX_ORCHESTRATOR_CLIENT\" \"\$TMUX_ORCHESTRATOR_CLIENT_TTY\" >$CMD_LOG"
 (env -u TMUX TERM=xterm-256color timeout 60 script -qefc "tmux -L $S attach -t beta" "$CLIENT_LOG.3" >/dev/null 2>&1) &
 CLIENT3_PID=$!
@@ -335,7 +335,7 @@ assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{pane_id}')" "$P1"
 assert_eq "$(cut -d'|' -f3 "$CMD_LOG")" "$BETA_CLIENT"
 assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{session_name}')" alpha
 kill "$CLIENT3_PID" 2>/dev/null || true
-tmux -L "$S" set-option -gu @tmux-orchestrator-notify-command
+tmux -L "$S" set-option -gu @tmux-orchestrator-raise-command
 
 kill "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=

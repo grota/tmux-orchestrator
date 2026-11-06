@@ -25,6 +25,10 @@ _Avoid_: title, label
 The agent a client is looking at: the one in the pane it views, and for OpenCode the one in that pane's active tab. At most one per client. With tmux's `focus-events` on, a client whose terminal window does not have focus views no agent.
 _Avoid_: selected agent, current agent, active agent
 
+**Attention key**:
+An optional key binding that brings the user to the next agent that is `blocked`, in `error` or `done`, across all tmux sessions.
+_Avoid_: jump key, next key
+
 **Agent kind**:
 The product an agent belongs to: Claude Code or OpenCode.
 _Avoid_: agent type, agent name
@@ -1007,6 +1011,35 @@ The sidebar SHALL emphasise the focused agent's name for the client viewing it, 
 - **WHEN** `@tmux-orchestrator-focus-style` is `none`
 - **THEN** the focused agent's name looks like any other agent's name
 
+### Attention key
+
+When `@tmux-orchestrator-attention-key` is set, the system SHALL bind that key in the tmux key table named by `@tmux-orchestrator-attention-table` (`prefix` by default; `root` binds it without the prefix). Without the key option it MUST NOT bind anything. Like the toggle key, it MUST NOT overwrite a binding it did not create, and a reload MUST remove its earlier binding of another key or table. Pressing the key SHALL bring the user to the agent that most needs attention across all tmux sessions: `blocked` agents first, then `error`, then `done`, and within each state the one whose state time is longest. When the pressing client already views one of them, the key SHALL go to the next one in that order, wrapping after the last. The client brought to the agent SHALL be one already showing the agent's window, else one attached to the agent's tmux session, else the pressing client, and the system SHALL then run `@tmux-orchestrator-raise-command` as for a notification click. With no agent needing attention, the pressing client SHALL show `No agent needs attention`.
+
+#### Scenario: Agent in another terminal window
+
+- **WHEN** the user presses the key in one terminal window and the most urgent agent's tmux session is attached in another terminal window
+- **THEN** that other client switches to the agent, and the raise command brings its window forward
+
+#### Scenario: Going through several agents
+
+- **WHEN** one agent is `blocked`, one in `error` and one `done`, and the user presses the key three times, each time from the client showing the previous agent
+- **THEN** the user visits the `blocked`, then the `error`, then the `done` agent
+
+#### Scenario: Agent in a detached session
+
+- **WHEN** no client is attached to the agent's tmux session
+- **THEN** the pressing client switches to it
+
+#### Scenario: Nothing to do
+
+- **WHEN** no agent is `blocked`, in `error` or `done`
+- **THEN** the pressing client shows `No agent needs attention` and nothing moves
+
+#### Scenario: Key already taken
+
+- **WHEN** `M-a` is already bound in the root table by the user and the attention key is set to `M-a` in `root`
+- **THEN** the user's binding stays and the attention key is not bound
+
 ### Keys panel
 
 The sidebar SHALL end with a right-aligned, clickable `? keys` row that opens and closes the keys panel for all clients. The open panel MUST list the toggle key and every tmux key binding whose command calls the reporter, with its key table, key and reporter subcommand, read when the panel opens. It MUST NOT list fixed mouse actions or tmux's own border actions.
@@ -1362,7 +1395,7 @@ The system SHALL provide one global option per notification channel, each accept
 
 ### Focus from a desktop notification
 
-A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-notify-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter, and the wait MUST end after five minutes, after which a click does nothing. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
+A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-raise-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter, and the wait MUST end after five minutes, after which a click does nothing. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
 
 #### Scenario: Click on a blocked agent
 
@@ -1533,9 +1566,9 @@ Renaming an agent from the sidebar should rename it in the agent itself, so othe
 - OpenCode needs no internal path: its adapter renames through the plugin API (`api.client.session.update`), and `tests/contract/opencode-test.sh` checks it against a real OpenCode TUI.
 - Windows would need the session's auth token; the plugin does not run there.
 
-### D10. A notification click raises the terminal through a user command
+### D10. The terminal window is raised through a user command
 
-Clicking a desktop notification should show the agent. tmux can switch a client to the agent's pane, but it cannot raise the terminal window that runs the client, and how to do that depends on the compositor or window manager. The reporter therefore does the tmux part and hands the window part to a user command, `@tmux-orchestrator-notify-command`, with the client's pid and tty. `examples/notify-command-niri.sh` does it for niri.
+Clicking a desktop notification, or pressing the attention key, should show the agent, often in another terminal window. tmux can switch a client to the agent's pane, but it cannot raise the terminal window that runs the client, and how to do that depends on the compositor or window manager. The reporter therefore does the tmux part and hands the window part to a user command, `@tmux-orchestrator-raise-command`, with the client's pid and tty. `examples/raise-command-niri.sh` does it for niri.
 
 **Considered options**
 

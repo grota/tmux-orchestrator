@@ -15,6 +15,7 @@ RUN_RECONCILE="${REPORTER_PREFIX}'$REPORTER' reconcile"
 RUN_GC="${REPORTER_PREFIX}'$REPORTER' gc"
 RUN_TOGGLE="${REPORTER_PREFIX}'$REPORTER' toggle"
 RUN_RENAME="${REPORTER_PREFIX}'$REPORTER' rename-prompt"
+RUN_ATTENTION="${REPORTER_PREFIX}'$REPORTER' attention"
 # Not named TMUX: assigning an array to it drops tmux's own TMUX variable
 # from every command, which then talks to the default server.
 TMUX_CMD=("${TMUX_BIN:-tmux}")
@@ -165,6 +166,28 @@ if [[ -z $existing ]] || is_our_toggle "$existing"; then
 	"${TMUX_CMD[@]}" bind-key "$toggle_key" run-shell -b "$RUN_TOGGLE"
 else
 	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: prefix $toggle_key is already bound, so the sidebar toggle key was not bound" >/dev/null 2>&1 || true
+fi
+
+# The attention key is bound only when @tmux-orchestrator-attention-key is
+# set, in the key table @tmux-orchestrator-attention-table names (prefix by
+# default, root for a key without the prefix, or any other table).  Like the
+# toggle key it never overwrites a user binding, and our binding of an earlier
+# key or table goes.
+attention_key=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-attention-key 2>/dev/null || true)
+attention_table=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-attention-table 2>/dev/null || true)
+[[ -n $attention_table ]] || attention_table=prefix
+is_our_attention() { [[ $1 == *bin/tmux-orchestrator*' attention'* ]]; }
+while IFS='|' read -r table key command; do
+	[[ $table == "$attention_table" && $key == "$attention_key" ]] && continue
+	is_our_attention "$command" && "${TMUX_CMD[@]}" unbind-key -T "$table" "$key"
+done < <("${TMUX_CMD[@]}" list-keys -F '#{key_table}|#{key_string}|#{key_command}' 2>/dev/null || true)
+if [[ -n $attention_key ]]; then
+	existing=$("${TMUX_CMD[@]}" list-keys -T "$attention_table" -F '#{key_command}' "$attention_key" 2>/dev/null || true)
+	if [[ -z $existing ]] || is_our_attention "$existing"; then
+		"${TMUX_CMD[@]}" bind-key -T "$attention_table" "$attention_key" run-shell -b "$RUN_ATTENTION '#{client_name}'"
+	else
+		"${TMUX_CMD[@]}" display-message "tmux-orchestrator: $attention_key is already bound in the $attention_table table, so the attention key was not bound" >/dev/null 2>&1 || true
+	fi
 fi
 
 # Fixed indexes make reloads idempotent and preserve other plugins' hooks.

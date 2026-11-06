@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Attention key: `@tmux-orchestrator-attention-key` and `@tmux-orchestrator-attention-table` bind a key that goes to the next agent that is blocked, in error or done.
 - A Claude Code agent's row shows how many background tasks its main thread has running, as a blue `·` and a count.
 - `@tmux-orchestrator-focus-events` option: the plugin turns on tmux's `focus-events` unless it is `off`, and warns when it stays off.
 - Clicking a desktop notification brings a tmux client to the agent.
-- `@tmux-orchestrator-notify-command` option, run after a notification click, with `examples/notify-command-niri.sh` for niri.
+- `@tmux-orchestrator-raise-command` option, run after a notification click or the attention key to bring the terminal window forward, with `examples/raise-command-niri.sh` for niri.
 - `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.
 - `@tmux-orchestrator-notify-tmux`, `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.

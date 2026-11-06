@@ -144,6 +144,25 @@ added later appear the next time.
 The plugin rebinds `MouseDown1Status` and `DoubleClick1Status` to handle these
 clicks, which replaces any existing bindings for them.
 
+### Attention key
+
+An optional key takes you to the agent that needs you most, across all tmux
+sessions: `blocked` agents first, then `error`, then `done`, the longest
+waiting first. Pressing it again while you view one of them goes to the next.
+It is not bound unless you set it:
+
+```tmux
+set -g @tmux-orchestrator-attention-key M-a
+set -g @tmux-orchestrator-attention-table root   # without the prefix
+```
+
+`@tmux-orchestrator-attention-table` names the tmux key table, `prefix` by
+default. The plugin never overwrites a binding of yours. If the agent's tmux
+session is already shown in another terminal window, that window's client
+switches to it; otherwise the client you pressed the key in does. Set
+`@tmux-orchestrator-raise-command` (see [Notifications](#notifications)) to
+bring that terminal window forward.
+
 ### State icons
 
 | State   | Icon | Colour |
@@ -188,13 +207,13 @@ Set all three to `off` to stop notifications. State tracking continues.
 Clicking a `notify-send` notification brings a tmux client to the agent: the
 client already showing the agent's window, else one in its tmux session, else
 the most recently active one. tmux cannot raise the terminal window itself, so
-set `@tmux-orchestrator-notify-command` to a shell command that does it. The
+set `@tmux-orchestrator-raise-command` to a shell command that does it. The
 command gets `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`,
 `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and
 `TMUX_ORCHESTRATOR_CLIENT_TTY`. On niri:
 
 ```tmux
-set -g @tmux-orchestrator-notify-command '~/.tmux/plugins/tmux-orchestrator/examples/notify-command-niri.sh'
+set -g @tmux-orchestrator-raise-command '~/.tmux/plugins/tmux-orchestrator/examples/raise-command-niri.sh'
 ```
 
 A click works for five minutes after the notification appears; after that it
