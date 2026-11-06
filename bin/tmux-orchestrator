@@ -442,8 +442,8 @@ notify_desktop() {
 
 # Show SUMMARY with a default action, and focus the agent of PANE with agent
 # session SID when the user clicks the notification.  Dismissing it, or no
-# answer within NOTIFY_WAIT seconds, does nothing.
-NOTIFY_WAIT=${TMUX_ORCHESTRATOR_NOTIFY_WAIT:-3600}
+# answer within NOTIFY_WAIT seconds (five minutes), does nothing.
+NOTIFY_WAIT=${TMUX_ORCHESTRATOR_NOTIFY_WAIT:-300}
 notify_click() {
 	local pane=$1 sid=$2 summary=$3 action
 	local -a run=(notify-send -a tmux-orchestrator -A default=Focus "$summary")

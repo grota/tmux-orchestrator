@@ -194,6 +194,9 @@ command gets `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`,
 set -g @tmux-orchestrator-notify-command '~/.tmux/plugins/tmux-orchestrator/examples/notify-command-niri.sh'
 ```
 
+A click works for five minutes after the notification appears; after that it
+does nothing.
+
 `tmux-orchestrator focus-agent --pane ID` does the same as a click.
 
 Notification text is:

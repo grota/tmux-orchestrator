@@ -1310,7 +1310,7 @@ The system SHALL provide one global option per notification channel, each accept
 
 ### Focus from a desktop notification
 
-A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-notify-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter, and the wait MUST end after an hour. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
+A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-notify-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter, and the wait MUST end after five minutes, after which a click does nothing. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
 
 #### Scenario: Click on a blocked agent
 
@@ -1492,5 +1492,5 @@ Clicking a desktop notification should show the agent. tmux can switch a client 
 
 **Consequences**
 
-- `notify-send` runs in the background with `--wait` semantics and stays until the notification is clicked, dismissed or an hour passes.
+- `notify-send` runs in the background with `--wait` semantics and stays until the notification is clicked, dismissed or five minutes pass. A notification daemon that keeps notifications in a history list still shows a Focus action there after that, and it does nothing.
 - Terminals that run several windows from one process (Ghostty, kitty, foot server) share one pid. The niri example tells them apart by writing a unique title to the client's tty for a moment, then restores the window's old title.
