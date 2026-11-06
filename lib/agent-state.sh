@@ -1,6 +1,6 @@
 # Agent state module for tmux-orchestrator.  Sourced by the reporter and its
 # tests; it performs no tmux or other I/O.  Every agent event's meaning and
-# every state rule lives here (ADR-0005).
+# every state rule lives here (SPEC.md D5).
 
 # Rank used for pane, overflow and session rollups.
 agent_rank() {
@@ -67,7 +67,7 @@ agent_event_meaning() {
 		esac
 		;;
 	# Made by the reporter from the session status: Claude Code has no interrupt
-	# hook (ADR-0010).
+	# hook (SPEC.md D6).
 	claude:Interrupted) printf interrupt ;;
 
 	opencode:session.execution.started | opencode:permission.replied | \

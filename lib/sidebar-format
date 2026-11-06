@@ -1,5 +1,5 @@
 # Sidebar format fragments.  tmux-orchestrator.tmux reads the key=value lines
-# below and assembles side-status-format at load time (ADR-0004):
+# below and assembles side-status-format at load time (SPEC.md D4):
 #   {STATE}  is replaced by the option holding a state, inside icon.
 #   {ICON:x} is replaced by the icon fragment for option x.
 #   {I}      is replaced by the slot number, inside agent_row.
@@ -7,7 +7,7 @@
 #   {NAME_FIRST} and {NAME_MORE} are replaced inside agent_row: name_more is
 #                repeated for name lines 2 to name_lines, with {OFF} the
 #                number of name widths already shown and {CUT} the width
-#                limit, ending in … on the last line (ADR-0008).
+#                limit, ending in … on the last line (SPEC.md D8).
 #   {EMPH} is replaced by emph, the focused agent's name style.
 #   {NW1} is the name width of a row's first line: it gives {EXTRA} columns
 #         to the subagent icon and count while a Claude agent has subagents.

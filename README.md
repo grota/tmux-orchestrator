@@ -235,7 +235,7 @@ a background watcher reads the session's status from Claude Code's session
 registry every 2 seconds. When the session is `idle` twice in a row and no `Stop`
 arrived, the agent moves to `idle`. The watcher stops when the turn ends, when
 the next prompt starts a new one, or when the session exits. It relies on the
-registry file, which Claude Code does not document (ADR-0010).
+registry file, which Claude Code does not document (SPEC.md D6).
 
 The last hook received is stored in the pane option `@agent_1_event`, for
 example `claude:StopFailure:rate_limit`.
@@ -433,7 +433,7 @@ trusts. The OpenCode test uses its own configuration and session store.
   you close it; the keys panel is not a scrolling list.
 - State disappears when the tmux server exits. There is no external history.
 - Renaming a Claude agent uses an undocumented Claude Code message (see
-  ADR-0009). If an update changes it, renaming fails with a message until the
+  SPEC.md D9). If an update changes it, renaming fails with a message until the
   plugin is updated; `tests/contract/claude-test.sh` detects it.
 - Renaming an agent needs `python3` or `nc -U`.
 - The Claude name lookup depends on `claude agents --json`; a missing or slow

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Claude Code adapter: reads a hook payload on stdin and forwards it to the
-# shared reporter as an agent event (ADR-0005).  Claude Code installs only this
+# shared reporter as an agent event (SPEC.md D5).  Claude Code installs only this
 # plugin's directory, so the reporter is found through the tmux server the
-# agent runs in (ADR-0007): an explicit override, the option the tmux plugin
+# agent runs in (SPEC.md D7): an explicit override, the option the tmux plugin
 # publishes, then PATH.
 set -u
 reporter=${TMUX_ORCHESTRATOR_REPORTER:-}

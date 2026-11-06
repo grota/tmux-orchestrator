@@ -1,8 +1,8 @@
 // tmux-orchestrator OpenCode 2.x adapter.  It runs in the TUI, in the agent
 // pane's own process, because only the TUI knows its pane and its tabs
-// (ADR-0003).  It forwards agent events and tab snapshots to the shared
-// reporter and never interprets them (ADR-0005).  It finds the reporter
-// through the tmux server it runs in (ADR-0007).
+// (SPEC.md D3).  It forwards agent events and tab snapshots to the shared
+// reporter and never interprets them (SPEC.md D5).  It finds the reporter
+// through the tmux server it runs in (SPEC.md D7).
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, unlinkSync } from "node:fs";
 import { createServer } from "node:net";

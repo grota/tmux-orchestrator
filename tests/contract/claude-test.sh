@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Contract test: checks that the installed Claude Code still has the internal,
-# undocumented behaviour the reporter relies on (ADR-0009, ADR-0010).  It
+# undocumented behaviour the reporter relies on (SPEC.md D9, D6).  It
 # starts a real interactive Claude in a private tmux server and sends it no
 # prompt, so it needs no API turn.  TMUX_ORCHESTRATOR_CONTRACT_TURN=1 also
 # interrupts one Haiku turn to check interrupt detection end to end.  Run it after a Claude Code update; a failure means a feature

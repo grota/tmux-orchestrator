@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Contract test: checks that the installed OpenCode still loads the adapter
-# and has the plugin API it uses (ADR-0009).  It runs a real OpenCode TUI in
+# and has the plugin API it uses (SPEC.md D9).  It runs a real OpenCode TUI in
 # a private tmux server, with its own config, data and state directories, on
 # a session created through the API.  It sends no prompt and needs no model.
 set -eu

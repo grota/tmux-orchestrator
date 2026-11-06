@@ -21,7 +21,7 @@ fi
 # adapters call change incompatibly.
 PROTOCOL=1
 
-# Agents past this slot are shown as one overflow row (ADR-0004).  The sidebar
+# Agents past this slot are shown as one overflow row (SPEC.md D4).  The sidebar
 # format holds the number, so both sides agree.
 VISIBLE_SLOTS=9
 while IFS= read -r line; do
@@ -610,7 +610,7 @@ report_event() {
 	fi
 }
 
-# Claude Code sends no hook for an interrupt (ADR-0010).  While a turn runs,
+# Claude Code sends no hook for an interrupt (SPEC.md D6).  While a turn runs,
 # one watcher per pane reads the session's status from Claude's session
 # registry.  Two idle readings in a row while the agent is still working or
 # blocked mean the turn ended without a Stop hook; one reading could race the
@@ -1045,7 +1045,7 @@ sys.stdout.write(data.decode(errors="replace").split("\n")[0])
 }
 
 # Print the session registry file of the running Claude session SID: Claude
-# Code keeps one JSON file per running session (ADR-0009).
+# Code keeps one JSON file per running session (SPEC.md D9).
 claude_registry_file() {
 	local sid=$1 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions
 	[[ -d $dir ]] || return 0
@@ -1062,7 +1062,7 @@ claude_registry_field() {
 }
 
 # Rename the running Claude session SID through its messaging socket.  The
-# rename message is internal to Claude Code (ADR-0009), so the rename counts
+# rename message is internal to Claude Code (SPEC.md D9), so the rename counts
 # only once the session registry shows the new name.
 rename_claude() {
 	local sid=$1 name=$2 socket i
@@ -1273,7 +1273,7 @@ cleanup_all() {
 }
 
 # The OpenCode adapter is a link to this copy's plugins/opencode, so updating or
-# switching the tmux plugin updates it too (ADR-0007).  Only a link into a
+# switching the tmux plugin updates it too (SPEC.md D7).  Only a link into a
 # plugins/opencode directory is ours to replace.
 opencode_path_is_ours() {
 	[[ -L $1 && $(readlink -- "$1") == */plugins/opencode ]]
@@ -1417,7 +1417,7 @@ main() {
 			--name) name=$2; shift 2 ;;
 			--cwd) cwd=$2; shift 2 ;;
 			--refresh) refresh=1; shift ;;
-			# Adapters before ADR-0010 send it; interrupts no longer use it.
+			# Older adapters send it; interrupts no longer use it.
 			--transcript) shift 2 ;;
 			--agent) agent=$2; shift 2 ;;
 			*) shift ;;

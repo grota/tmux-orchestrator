@@ -168,7 +168,7 @@ assert_eq "$(tmux -L "$S2" show-options -pv -t %0 @agent_1_name_raw 2>/dev/null)
 tmux -L "$S2" kill-server
 
 # A Claude interrupt is read from the session status in Claude's session
-# registry (ADR-0010).
+# registry (SPEC.md D6).
 export TMUX_ORCHESTRATOR_WATCH_TICK=0.2
 SAVED_CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR-}
 export CLAUDE_CONFIG_DIR=$(mktemp -d)

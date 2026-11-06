@@ -39,7 +39,7 @@ opencode_auto=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-opencode-au
 ((width >= 10)) || width=28
 [[ -n $toggle_key ]] || toggle_key=O
 
-# Adapters find the reporter of the copy loaded here through this option (ADR-0007).
+# Adapters find the reporter of the copy loaded here through this option (SPEC.md D7).
 "${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-reporter "$REPORTER"
 # Keep the OpenCode adapter linked to this copy when OpenCode is installed.  The
 # server PATH can miss a bin directory added by shell startup files, so the
@@ -60,7 +60,7 @@ fi
 "${TMUX_CMD[@]}" set-option -g side-status-width "$width"
 
 # Assemble the sidebar from lib/sidebar-format: one icon fragment for every
-# state, one agent row repeated per slot, and the overflow row (ADR-0004).
+# state, one agent row repeated per slot, and the overflow row (SPEC.md D4).
 while IFS= read -r line; do
 	case "$line" in
 	slots=*) VISIBLE_SLOTS=${line#slots=} ;;
@@ -95,7 +95,7 @@ expand_icons() {
 }
 
 # Name lines 2 and later skip the name widths already shown, using a prefix
-# of this dot string as a regex (ADR-0008).  It covers sidebars up to 500
+# of this dot string as a regex (SPEC.md D8).  It covers sidebars up to 500
 # columns wide.
 dots=$(printf '%*s' $((500 * (NAME_LINES - 1))) '')
 "${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-dots "${dots// /.}"
