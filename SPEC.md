@@ -22,7 +22,7 @@ The label shown for an agent: its agent session's title, or the working-director
 _Avoid_: title, label
 
 **Focused agent**:
-The agent a client is looking at: the one in the pane it views, and for OpenCode the one in that pane's active tab. At most one per client.
+The agent a client is looking at: the one in the pane it views, and for OpenCode the one in that pane's active tab. At most one per client. With tmux's `focus-events` on, a client whose terminal window does not have focus views no agent.
 _Avoid_: selected agent, current agent, active agent
 
 **Agent kind**:
@@ -148,6 +148,11 @@ The system SHALL derive state only from agent events and from the user viewing a
 
 - **WHEN** the exact agent pane is focused and, for an OpenCode agent, its tab is the active tab
 - **THEN** a `done` state clears to `idle`
+
+#### Scenario: Done stays in a background terminal window
+
+- **WHEN** `focus-events` is on and the only client showing a `done` agent's pane is in a terminal window without focus
+- **THEN** the agent stays `done` until that window gets focus
 
 #### Scenario: Done stays on a background tab
 
@@ -1117,7 +1122,7 @@ The tmux notification SHALL contain the state icon, agent name, and state, in th
 
 ### Viewing suppression
 
-The system SHALL skip the tmux notification for a client that is viewing the agent that changed. It SHALL skip the desktop and terminal notifications if any attached client is viewing that agent. A client views an agent when the agent's pane is the client's active pane and, for an OpenCode agent, its tab is the active tab.
+The system SHALL skip the tmux notification for a client that is viewing the agent that changed. It SHALL skip the desktop and terminal notifications if any attached client is viewing that agent. A client views an agent when the agent's pane is the client's active pane and, for an OpenCode agent, its tab is the active tab. With tmux's `focus-events` on, a client views an agent only while its terminal window has focus, as tmux's `focused` client flag reports; with it off, the system cannot tell and treats every client as focused.
 
 #### Scenario: One client views the agent
 
@@ -1128,6 +1133,11 @@ The system SHALL skip the tmux notification for a client that is viewing the age
 
 - **WHEN** an agent changes state and no attached client has its pane active
 - **THEN** every attached client receives the tmux message and the enabled desktop and terminal notifications are sent
+
+#### Scenario: Terminal window in the background
+
+- **WHEN** `focus-events` is on and the only client with the agent's pane active is in a terminal window without focus
+- **THEN** the enabled desktop and terminal notifications are sent
 
 #### Scenario: Background OpenCode tab
 

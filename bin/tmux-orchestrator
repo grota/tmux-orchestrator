@@ -376,6 +376,15 @@ viewed_slot() {
 	printf '%s' "$active"
 }
 
+# The clients that see their active pane, as "NAME PANE" lines.  With
+# focus-events on, tmux knows which terminal window has focus, and a client
+# whose window is in the background sees nothing.
+seeing_clients() {
+	local filter=1
+	[[ $(get_global focus-events) == on ]] && filter='#{m:*focused*,#{client_flags}}'
+	tmux_do list-clients -f "$filter" -F '#{client_name} #{pane_id}' || true
+}
+
 client_views() {
 	local cpane=$1 pane=$2 slot=$3
 	[[ $cpane == "$pane" ]] || return 1
@@ -502,7 +511,7 @@ focus_agent() {
 notify_agent() {
 	local pane=$1 i=$2 state=$3 name=${RAW[$2]-}
 	local paused icon msg client cpane any_view=0 tmux_allowed=1
-	local last now sent=0 tmux=0 desktop=0 terminal=0
+	local last now sent=0 tmux=0 desktop=0 terminal=0 seers=' '
 
 	paused=$(get_global @tmux-orchestrator-notify-paused)
 	[[ $paused == 1 ]] && return 0
@@ -515,11 +524,12 @@ notify_agent() {
 	icon=$(state_icon "$state")
 	msg="$icon $name $state"
 
-	# Channels outside tmux are suppressed if any client is already viewing.
+	# A client that sees the agent gets no tmux message, and channels outside
+	# tmux are suppressed if any client sees it.
 	while IFS=' ' read -r client cpane; do
 		[[ -n $cpane ]] || continue
-		client_views "$cpane" "$pane" "$i" && any_view=1
-	done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
+		client_views "$cpane" "$pane" "$i" && any_view=1 && seers+=" $client "
+	done < <(seeing_clients)
 
 	if ((tmux)); then
 		if [[ $state == done ]]; then
@@ -530,11 +540,10 @@ notify_agent() {
 			fi
 		fi
 		if ((tmux_allowed)); then
-			while IFS=' ' read -r client cpane; do
-				[[ -n $client ]] || continue
-				client_views "$cpane" "$pane" "$i" && continue
+			while IFS= read -r client; do
+				[[ -n $client && $seers != *" $client "* ]] || continue
 				tmux_ok display-message -l -c "$client" "$msg" && sent=1
-			done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
+			done < <(tmux_do list-clients -F '#{client_name}' || true)
 			if ((sent)); then
 				NOTIFIED[i]=$(date +%s)
 				set_pane_opt "$pane" "@agent_${i}_notified_at" "${NOTIFIED[i]}"
@@ -1039,7 +1048,7 @@ focus_agents() {
 			changed=1
 		fi
 		((changed)) && after_pane_change "$pane"
-	done < <(tmux_do list-clients -F '#{client_name} #{pane_id}' || true)
+	done < <(seeing_clients)
 	refresh_clients
 }
 
@@ -1342,7 +1351,7 @@ cleanup_all() {
 		done
 	done < <(tmux_do list-sessions -F '#{session_id}' || true)
 	for hook in 'after-select-pane[90]' 'after-select-window[90]' \
-		'client-session-changed[90]' 'session-closed[90]'; do
+		'client-session-changed[90]' 'client-focus-in[90]' 'session-closed[90]'; do
 		tmux_ok set-hook -gu "$hook"
 	done
 	tmux_ok set-hook -gwu 'pane-exited[90]'

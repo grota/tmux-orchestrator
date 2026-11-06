@@ -160,6 +160,8 @@ fi
 "${TMUX_CMD[@]}" set-hook -g 'after-select-pane[90]' "run-shell -b \"$RUN_FOCUS\""
 "${TMUX_CMD[@]}" set-hook -g 'after-select-window[90]' "run-shell -b \"$RUN_FOCUS\""
 "${TMUX_CMD[@]}" set-hook -g 'client-session-changed[90]' "run-shell -b \"$RUN_FOCUS\""
+# A done agent clears when its terminal window gets focus (focus-events on).
+"${TMUX_CMD[@]}" set-hook -g 'client-focus-in[90]' "run-shell -b \"$RUN_FOCUS\""
 "${TMUX_CMD[@]}" set-hook -gw 'pane-exited[90]' "run-shell -b \"$RUN_RECONCILE\""
 # remain-on-exit keeps a dead pane instead of firing pane-exited.
 "${TMUX_CMD[@]}" set-hook -gw 'pane-died[90]' "run-shell -b \"$RUN_GC\""

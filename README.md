@@ -209,6 +209,11 @@ are skipped when any attached client is viewing it. A two-second per-agent coold
 applies to tmux `done` messages; `blocked` and `error` bypass it. Desktop and
 terminal notifications have no cooldown.
 
+Set `focus-events on` in tmux so that a client in a terminal window without
+focus does not count as viewing: an agent shown only in a background window
+still notifies, and its `done` state clears when you focus that window. With
+`focus-events off`, every client counts as looking at its pane.
+
 To stop notifications for a while without changing these options, see
 [Pause and resume](#pause-and-resume).
 

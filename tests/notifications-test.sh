@@ -339,4 +339,45 @@ tmux -L "$S" set-option -gu @tmux-orchestrator-notify-command
 
 kill "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=
+
+# With focus-events on, a client whose terminal window lost focus does not
+# see its pane: the agent notifies and a done state stays until focus returns.
+# The fifo feeds the client's terminal the focus-out and focus-in reports.
+tmux -L "$S" set-option -g focus-events on
+FOCUS_FIFO="$FAKE/focus.fifo"
+mkfifo "$FOCUS_FIFO"
+(env -u TMUX TERM=xterm-256color timeout 60 script -qefc "tmux -L $S attach -t alpha" /dev/null <"$FOCUS_FIFO" >/dev/null 2>&1) &
+CLIENT_PID=$!
+exec 7>"$FOCUS_FIFO"
+for _ in $(seq 1 30); do
+	[[ $(tmux -L "$S" list-clients -F '#{client_flags}' | grep -c focused || true) == 1 ]] && break
+	sleep 0.1
+done
+tmux -L "$S" select-window -t alpha:main
+tmux -L "$S" select-pane -t "$P0"
+: >"$NOTIFY_LOG"
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
+assert_eq "$(count_lines "$NOTIFY_LOG")" 0
+printf '\033[O' >&7
+for _ in $(seq 1 30); do
+	[[ $(tmux -L "$S" list-clients -F '#{client_flags}' | grep -c focused || true) == 0 ]] && break
+	sleep 0.1
+done
+report_state "$P0" working fix-login claude s0
+report_state "$P0" done fix-login claude s0
+assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+assert_contains "$NOTIFY_LOG" '✓ Agent done: fix-login'
+"$BIN" focus
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" done
+printf '\033[I' >&7
+for _ in $(seq 1 30); do
+	[[ $(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state) == idle ]] && break
+	sleep 0.1
+done
+assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
+exec 7>&-
+tmux -L "$S" set-option -gu focus-events
+kill "$CLIENT_PID" 2>/dev/null || true
+CLIENT_PID=
 printf 'notification tests passed\n'
