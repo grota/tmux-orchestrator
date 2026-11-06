@@ -1134,6 +1134,16 @@ The system SHALL skip the tmux notification for a client that is viewing the age
 - **WHEN** an agent changes state and no attached client has its pane active
 - **THEN** every attached client receives the tmux message and the enabled desktop and terminal notifications are sent
 
+#### Scenario: Focus events turned on
+
+- **WHEN** the plugin loads and `@tmux-orchestrator-focus-events` is not `off`
+- **THEN** it sets tmux's `focus-events` to `on`
+
+#### Scenario: Focus events left off
+
+- **WHEN** the plugin loads with `@tmux-orchestrator-focus-events` set to `off` and `focus-events` not `on`
+- **THEN** it shows a tmux message that agents in a background terminal window do not notify, and `notify status` reports `focus-events: off`
+
 #### Scenario: Terminal window in the background
 
 - **WHEN** `focus-events` is on and the only client with the agent's pane active is in a terminal window without focus

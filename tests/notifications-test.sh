@@ -343,7 +343,9 @@ CLIENT_PID=
 # With focus-events on, a client whose terminal window lost focus does not
 # see its pane: the agent notifies and a done state stays until focus returns.
 # The fifo feeds the client's terminal the focus-out and focus-in reports.
-tmux -L "$S" set-option -g focus-events on
+# Loading the plugin turned focus-events on, and status reports it.
+assert_eq "$(tmux -L "$S" show-options -gv focus-events)" on
+"$BIN" notify status | grep -qx 'focus-events: on' || fail 'status hid focus-events'
 FOCUS_FIFO="$FAKE/focus.fifo"
 mkfifo "$FOCUS_FIFO"
 (env -u TMUX TERM=xterm-256color timeout 60 script -qefc "tmux -L $S attach -t alpha" /dev/null <"$FOCUS_FIFO" >/dev/null 2>&1) &
@@ -377,7 +379,14 @@ for _ in $(seq 1 30); do
 done
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" idle
 exec 7>&-
-tmux -L "$S" set-option -gu focus-events
+
+# Opting out keeps focus-events as it was, warns, and status says so.
+tmux -L "$S" set-option -g focus-events off
+tmux -L "$S" set-option -g @tmux-orchestrator-focus-events off
+"$ROOT/tmux-orchestrator.tmux"
+assert_eq "$(tmux -L "$S" show-options -gv focus-events)" off
+"$BIN" notify status | grep -qF 'focus-events: off' || fail 'status hid focus-events off'
+tmux -L "$S" set-option -gu @tmux-orchestrator-focus-events
 kill "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=
 printf 'notification tests passed\n'

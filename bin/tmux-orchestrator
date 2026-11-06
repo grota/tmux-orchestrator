@@ -1335,6 +1335,11 @@ notify_status() {
 			printf '%s: %s\n' "$channel" "$value"
 		fi
 	done
+	if [[ $(get_global focus-events) == on ]]; then
+		printf 'focus-events: on\n'
+	else
+		printf 'focus-events: off (clients in background terminal windows count as viewing)\n'
+	fi
 }
 
 cleanup_all() {

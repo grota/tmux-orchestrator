@@ -59,6 +59,17 @@ else
 fi
 "${TMUX_CMD[@]}" set-option -g side-status-width "$width"
 
+# Clients in a terminal window without focus must not count as viewing their
+# agent, and only focus-events tells tmux which window has focus.  It is turned
+# on unless @tmux-orchestrator-focus-events is off, and then a missing
+# focus-events is reported.
+focus_events=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-focus-events 2>/dev/null || true)
+if [[ $focus_events != off ]]; then
+	"${TMUX_CMD[@]}" set-option -g focus-events on
+elif [[ $("${TMUX_CMD[@]}" show-options -gv focus-events 2>/dev/null) != on ]]; then
+	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: focus-events is off, so agents shown in a background terminal window do not notify" >/dev/null 2>&1 || true
+fi
+
 # Assemble the sidebar from lib/sidebar-format: one icon fragment for every
 # state, one agent row repeated per slot, and the overflow row (SPEC.md D4).
 while IFS= read -r line; do

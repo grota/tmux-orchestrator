@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `@tmux-orchestrator-focus-events` option: the plugin turns on tmux's `focus-events` unless it is `off`, and warns when it stays off.
 - Clicking a desktop notification brings a tmux client to the agent.
 - `@tmux-orchestrator-notify-command` option, run after a notification click, with `examples/notify-command-niri.sh` for niri.
 - `focus-agent` command.
