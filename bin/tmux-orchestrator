@@ -513,29 +513,39 @@ focus_agent() {
 }
 
 # attention CLIENT
-# Bring CLIENT, or a client already showing it, to the agent that most needs
-# attention: blocked, then error, then done, the longest waiting first, across
-# every tmux session.  When CLIENT already views one of them, the next one in
-# that order is chosen, wrapping around, so repeated presses go through all.
+# Bring CLIENT, or a client already showing it, to the next agent.  Every
+# agent is in one list: those that need attention first (blocked, then error,
+# then done, the longest waiting first), then the others in sidebar order.  An
+# agent that became blocked, error or done since the previous press comes
+# first; otherwise the agent after the one CLIENT views is chosen, wrapping
+# around, so repeated presses go through every agent.
 attention() {
-	local client=$1 pane i rank cur slot entry sorted next='' first='' found=0
+	local client=$1 pane i rank since order=0 cur slot entry sorted next='' first='' fresh='' found=0
+	local last now
 	local -a list=()
 	[[ -n $client ]] || return 0
+	last=$(get_global @tmux-orchestrator-attention-at)
+	[[ $last =~ ^[0-9]+$ ]] || last=0
+	now=$(date +%s)
+	tmux_ok set-option -g @tmux-orchestrator-attention-at "$now"
 	while IFS= read -r pane; do
 		[[ -n $pane ]] || continue
+		order=$((order + 1))
 		load_pane "$pane"
 		for ((i = 1; i <= N; i++)); do
+			since=${SINCE[i]:-0}
+			[[ $since =~ ^[0-9]+$ ]] || since=0
 			case "${STATE[i]-}" in
 			blocked) rank=0 ;;
 			error) rank=1 ;;
 			done) rank=2 ;;
-			*) continue ;;
+			*) rank=3 since=0 ;;
 			esac
-			list+=("$rank ${SINCE[i]:-0} $pane $i ${SID[i]:--}")
+			list+=("$rank $since $order $i $pane ${SID[i]:--}")
 		done
 	done < <(tmux_do list-panes -a -F '#{?#{@agent_n},#{pane_id},}' || true)
 	if ((${#list[@]} == 0)); then
-		tmux_ok display-message -c "$client" 'No agent needs attention'
+		tmux_ok display-message -c "$client" 'No agents'
 		return 0
 	fi
 	# display-message -c does not read the client's own pane, list-clients does.
@@ -543,18 +553,23 @@ attention() {
 		[[ $c == "$client" ]] && printf '%s' "$pane"
 	done)
 	slot=$(viewed_slot "$cur")
-	sorted=$(printf '%s\n' "${list[@]}" | sort -k1,1n -k2,2n -k3,3 -k4,4n)
+	sorted=$(printf '%s\n' "${list[@]}" | sort -k1,1n -k2,2n -k3,3n -k4,4n)
 	while IFS= read -r entry; do
-		[[ -n $first ]] || first=$entry
-		if ((found)); then
-			next=$entry
-			break
+		read -r rank since _ i pane _ <<<"$entry"
+		if [[ $pane == "$cur" && $i == "$slot" ]]; then
+			found=1
+			continue
 		fi
-		read -r _ _ pane i _ <<<"$entry"
-		[[ $pane == "$cur" && $i == "$slot" ]] && found=1
+		[[ -n $first ]] || first=$entry
+		[[ -z $fresh && $rank -lt 3 && $since -gt $last ]] && fresh=$entry
+		[[ -z $next && $found == 1 ]] && next=$entry
 	done <<<"$sorted"
-	[[ -n $next ]] || next=$first
-	read -r _ _ pane i entry <<<"$next"
+	next=${fresh:-${next:-$first}}
+	if [[ -z $next ]]; then
+		tmux_ok display-message -c "$client" 'No other agents'
+		return 0
+	fi
+	read -r _ _ _ i pane entry <<<"$next"
 	[[ $entry == - ]] && entry=''
 	focus_agent "$pane" "$entry" "$client"
 }

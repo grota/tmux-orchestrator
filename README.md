@@ -146,10 +146,13 @@ clicks, which replaces any existing bindings for them.
 
 ### Attention key
 
-An optional key takes you to the agent that needs you most, across all tmux
-sessions: `blocked` agents first, then `error`, then `done`, the longest
-waiting first. Pressing it again while you view one of them goes to the next.
-It is not bound unless you set it:
+An optional key goes through your agents, across all tmux sessions, those that
+need you first: `blocked`, then `error`, then `done`, the longest waiting first,
+then all the others in sidebar order. Each press goes to the agent after the one
+you view, and starts over after the last. An agent that became blocked, error or
+done since your previous press comes first; one you already passed waits for
+the next lap, so a blocked agent you leave for later does not keep pulling you
+back. It is not bound unless you set it:
 
 ```tmux
 set -g @tmux-orchestrator-attention-key M-a

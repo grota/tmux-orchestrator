@@ -26,7 +26,7 @@ The agent a client is looking at: the one in the pane it views, and for OpenCode
 _Avoid_: selected agent, current agent, active agent
 
 **Attention key**:
-An optional key binding that brings the user to the next agent that is `blocked`, in `error` or `done`, across all tmux sessions.
+An optional key binding that brings the user to the next agent across all tmux sessions, those that need attention first.
 _Avoid_: jump key, next key
 
 **Agent kind**:
@@ -1013,27 +1013,34 @@ The sidebar SHALL emphasise the focused agent's name for the client viewing it, 
 
 ### Attention key
 
-When `@tmux-orchestrator-attention-key` is set, the system SHALL bind that key in the tmux key table named by `@tmux-orchestrator-attention-table` (`prefix` by default; `root` binds it without the prefix). Without the key option it MUST NOT bind anything. Like the toggle key, it MUST NOT overwrite a binding it did not create, and a reload MUST remove its earlier binding of another key or table. Pressing the key SHALL bring the user to the agent that most needs attention across all tmux sessions: `blocked` agents first, then `error`, then `done`, and within each state the one whose state time is longest. When the pressing client already views one of them, the key SHALL go to the next one in that order, wrapping after the last. The client brought to the agent SHALL be one already showing the agent's window, else one attached to the agent's tmux session, else the pressing client, and the system SHALL then run `@tmux-orchestrator-raise-command` as for a notification click. With no agent needing attention, the pressing client SHALL show `No agent needs attention`.
+When `@tmux-orchestrator-attention-key` is set, the system SHALL bind that key in the tmux key table named by `@tmux-orchestrator-attention-table` (`prefix` by default; `root` binds it without the prefix). Without the key option it MUST NOT bind anything. Like the toggle key, it MUST NOT overwrite a binding it did not create, and a reload MUST remove its earlier binding of another key or table.
+
+Pressing the key SHALL bring the user to another agent, across all tmux sessions, from one list: agents that need attention first (`blocked`, then `error`, then `done`, and within each state the one whose state time is longest), then every other agent in sidebar order. The first agent that became `blocked`, `error` or `done` after the previous press SHALL be chosen; otherwise the agent after the one the pressing client views, wrapping after the last, or the first when the client views none. The time of each press SHALL be stored in `@tmux-orchestrator-attention-at`. The client brought to the agent SHALL be one already showing the agent's window, else one attached to the agent's tmux session, else the pressing client, and the system SHALL then run `@tmux-orchestrator-raise-command` as for a notification click. With no agents, the pressing client SHALL show `No agents`.
 
 #### Scenario: Agent in another terminal window
 
 - **WHEN** the user presses the key in one terminal window and the most urgent agent's tmux session is attached in another terminal window
 - **THEN** that other client switches to the agent, and the raise command brings its window forward
 
-#### Scenario: Going through several agents
+#### Scenario: Going through every agent
 
-- **WHEN** one agent is `blocked`, one in `error` and one `done`, and the user presses the key three times, each time from the client showing the previous agent
-- **THEN** the user visits the `blocked`, then the `error`, then the `done` agent
+- **WHEN** one agent is `blocked`, one in `error`, one `done` and two are `idle`, and the user keeps pressing the key from the client showing the previous agent
+- **THEN** the user visits the `blocked`, `error` and `done` agents, then the `idle` ones, then starts over
+
+#### Scenario: New urgent agent during a lap
+
+- **WHEN** the user is going through the `idle` agents and another agent becomes `blocked`
+- **THEN** the next press goes to that agent, and the press after it continues the lap
+
+#### Scenario: Known urgent agent does not pin the user
+
+- **WHEN** an agent stays `blocked` while the user presses the key from an `idle` agent
+- **THEN** the key goes on to the next `idle` agent, and reaches the `blocked` one again when the lap wraps
 
 #### Scenario: Agent in a detached session
 
 - **WHEN** no client is attached to the agent's tmux session
 - **THEN** the pressing client switches to it
-
-#### Scenario: Nothing to do
-
-- **WHEN** no agent is `blocked`, in `error` or `done`
-- **THEN** the pressing client shows `No agent needs attention` and nothing moves
 
 #### Scenario: Key already taken
 

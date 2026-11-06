@@ -31,7 +31,7 @@ attach() {
 	done
 }
 
-tmux -L "$S" new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
+tmux -L "$S" -f /dev/null new-session -d -s alpha -n main -x 120 -y 40 'sleep 300'
 tmux -L "$S" set-option -g @tmux-orchestrator-opencode-auto-install off
 tmux -L "$S" split-window -t alpha:main -d 'sleep 300'
 tmux -L "$S" new-window -d -t alpha -n other 'sleep 300'
@@ -72,35 +72,63 @@ C2_PID=$!
 C1=$(client_of alpha)
 C2=$(client_of beta)
 
-# Without an agent that needs attention, the client is told so.
-report_state "$P0" idle zero claude s0
+st() { tmux -L "$S" show-options -pv -t "$1" @agent_1_state; }
+since() { tmux -L "$S" set-option -p -t "$1" @agent_1_since "$2"; }
+at() { tmux -L "$S" set-option -g @tmux-orchestrator-attention-at "$1"; }
+
+# Without agents, the client is told so.
 "$BIN" attention "$C1"
 for _ in $(seq 1 30); do
-	grep -aFq 'No agent needs' "$TMP/alpha.log" && break
+	grep -aFq 'No agents' "$TMP/alpha.log" && break
 	sleep 0.1
 done
-grep -aFq 'No agent needs' "$TMP/alpha.log" || fail 'no message without attention'
+grep -aFq 'No agents' "$TMP/alpha.log" || fail 'no message without agents'
 
-# Blocked comes first, then error, then done.  The blocked agent's session is
-# shown by the other client, so that client goes to it, not the one pressing.
+# With nothing that needs attention, the key goes through all agents.
+report_state "$P0" idle p0 claude s0
+"$BIN" attention "$C1"
+assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P0"
+
+# Agents that need attention come first: blocked, then error, then done.
+# The blocked agent's session is shown by the other client, so that client
+# goes to it, not the one pressing.
+NOW=$(date +%s)
 report_state "$P0" error p0-error claude s0
 report_state "$P1" done p1-done claude s1
 report_state "$PB" blocked pb-blocked claude sb
+since "$P0" $((NOW - 20))
+since "$P1" $((NOW - 30))
+since "$PB" $((NOW - 10))
+tmux -L "$S" select-window -t alpha:other
 "$BIN" attention "$C1"
 assert_eq "$(client_fmt "$C2" '#{pane_id}')" "$PB"
 assert_eq "$(client_fmt "$C1" '#{window_name}')" other
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C2 $PB"
 
 # From the client viewing it, the next press goes on to the error, which the
-# client in its session shows.
+# client in its session shows, then to the done agent.
 "$BIN" attention "$C2"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P0"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C1 $P0"
 "$BIN" attention "$C1"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P1"
+for _ in $(seq 1 30); do
+	[[ $(st "$P1") == idle ]] && break
+	sleep 0.1
+done
+assert_eq "$(st "$P1")" idle
 
-# After the last one it wraps to the first.
-tmux -L "$S" set-option -p -t "$P1" @agent_1_state done
+# The viewed done agent is now idle and last in the list, so the next press
+# wraps to the first.
+"$BIN" attention "$C1"
+assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C2 $PB"
+
+# An agent that became urgent since the last press comes before the next one
+# in the list; one already urgent at the last press waits its turn.
+tmux -L "$S" select-pane -t "$P0"
+"$BIN" attention "$C1"
+assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P1"
+since "$PB" $(($(date +%s) + 50))
 "$BIN" attention "$C1"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C2 $PB"
 
@@ -111,6 +139,7 @@ for _ in $(seq 1 30); do
 	[[ -z $(client_of beta) ]] && break
 	sleep 0.1
 done
+since "$PB" $(($(date +%s) + 100))
 "$BIN" attention "$C1"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$PB"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C1 $PB"
