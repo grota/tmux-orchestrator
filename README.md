@@ -10,245 +10,165 @@ and no external database.
 
 [![tmux-orchestrator architecture](docs/diagrams/architecture.gif)](docs/diagrams/architecture.gif)
 
-## Requirements
-
-- tmux 3.9 or newer (`side-status` is required).
-- `jq` for Claude Code hook payloads.
-- Claude Code 2.1.x and/or OpenCode 2.x (tested with 2.1.3). OpenCode 1.x is not
-  supported.
-- `python3` or `nc` with `-U` support, to focus an OpenCode tab from the
-  sidebar.
-- Optional desktop notifications: `notify-send` on Linux or `osascript` on macOS.
-
-The plugin checks for `side-status` and refuses to enable the sidebar on older
-tmux builds. Nothing else in the tmux configuration is prevented from loading.
-
 ## Install
 
 All installation is user-level. No existing hook JSON or agent configuration
 file is rewritten.
 
+### Requirements
+
+- tmux 3.9 or newer (`side-status` is required).
+- `jq` for Claude Code hook payloads.
+- Claude Code 2.1.x and/or OpenCode 2.x (tested with 2.1.3). OpenCode 1.x is not
+  supported.
+- `python3` or `nc` with `-U` support, to focus and rename OpenCode tabs and
+  rename Claude Code agents.
+- Optional, for desktop notifications: `notify-send` on Linux or `osascript` on
+  macOS.
+
 ### tmux
 
-Install with [TPM](https://github.com/tmux-plugins/tpm). Add the plugin to your
-tmux configuration, then press `prefix + I`:
+Install with [TPM](https://github.com/tmux-plugins/tpm): add the
+plugin to your tmux configuration, then press `prefix + I` (`prefix + U`
+updates it).
 
 ```tmux
 set -g @plugin 'grota/tmux-orchestrator'
 ```
 
-Set every `@tmux-orchestrator-*` option above the line that runs TPM
-(`run '~/.tmux/plugins/tpm/tpm'`). TPM loads the plugin on that line, and the
-plugin ignores options set after it.
-
-`prefix + U` updates it. The tmux plugin holds the only copy of the reporter and
-publishes its path in the global option `@tmux-orchestrator-reporter`. The
-Claude Code and OpenCode adapters find the reporter there.
-
 ### Claude Code
 
-Add this repository as a marketplace and install the plugin:
+Add this repository as a marketplace and install the plugin,
+then enable it in `/plugin` if needed. Sessions started afterwards are tracked.
 
 ```text
 /plugin marketplace add grota/tmux-orchestrator
 /plugin install tmux-orchestrator@tmux-orchestrator
 ```
 
-Enable it in the `/plugin` interface if it is not enabled already. The sidebar
-tracks Claude Code sessions started afterwards.
-
 ### OpenCode
 
-The tmux plugin links the OpenCode adapter automatically when OpenCode is
-installed, and keeps the link pointing at the loaded copy, so updating the tmux
-plugin updates the adapter. Restart OpenCode after the first install. To turn
-this off, set the option above the TPM `run` line:
+Nothing to do: the tmux plugin links the OpenCode adapter when
+OpenCode is installed. Restart OpenCode after the first install.
 
-```tmux
-set -g @tmux-orchestrator-opencode-auto-install off
-```
+## Usage
 
-## Sidebar
+### Sidebar
 
-By default the sidebar is on the left and 28 columns wide. Configure it before
-the plugin loads:
+The sidebar lists each tmux session with agents, then its agents. `prefix + O`
+shows and hides it; drag its border to resize it, double-click the border to
+reset the width.
 
-```tmux
-set -g @tmux-orchestrator-side right
-set -g @tmux-orchestrator-width 32
-set -g @tmux-orchestrator-toggle-key S
-```
+- A **session row** shows the most urgent state, the session name, how many
+  agents are blocked (`◉2`), in error (`×1`) or done (`✓1`), and the agent
+  count. `▸` marks the current session.
+- An **agent row** shows the state icon and name, then the kind (`claude` or
+  `opencode`) and how long the agent has been in its state (`3m12s`).
+- A Claude Code agent with subagents shows a second icon for them and their
+  count (`✓ ●2`); background tasks add a blue `·` and their count (`·2`).
+- An OpenCode pane has one row per tab. A pane shows at most nine agents; the
+  rest collapse into a `+N more` row.
+- **Click** a session row to switch to it, an agent row to go to its exact pane
+  (and OpenCode tab).
+- **Double-click** a session row to rename the tmux session, an agent row to
+  rename the agent in Claude Code or OpenCode.
+- `? keys`, the last row, opens a panel listing the plugin's key bindings.
 
-`@tmux-orchestrator-side` accepts `left` or `right`. The toggle key shows and
-hides the sidebar; it defaults to `O`, so `prefix + O`. The plugin binds it
-only if the key is free in the prefix table or already holds the plugin's
-toggle. Otherwise it keeps your binding and shows a message. Changing the key
-and reloading removes the plugin's binding from the old key. The enabled state
-is persisted in `@tmux-orchestrator-enabled`, so reloading tmux does not bring
-back a sidebar that was toggled off.
-
-Drag the sidebar border to resize it. Double-click the border to reset the width
-to `@tmux-orchestrator-width`. State refreshes do not reset a width changed by
-dragging.
-
-Rows:
-
-- A session row shows the rollup icon, session name, how many agents are
-  blocked (`◉2`), in error (`×1`) or done (`✓1`), and the agent count. The
-  current session is marked with `▸`.
-- An agent shows the state icon and the agent name, then a grey line with the
-  kind (`claude` or `opencode`) and, right-aligned, the state time: how long
-  since the agent's own events last changed its state (`45s`, `3m12s`, `1h4m`).
-  `set -g @tmux-orchestrator-time off` hides the time at once, with no reload.
-- Viewing a `done` agent clears it to `idle` but keeps its state time running,
-  so you still see how long ago its turn finished.
-  `set -g @tmux-orchestrator-time-on-view reset` restarts the time on view
-  instead; `keep` is the default.
-- Long names wrap over up to four lines, indented under the first one, and the
-  fourth ends in `…` if the name still does not fit. Wrapping follows the
-  sidebar width, including a dragged border.
-  `@tmux-orchestrator-name-max-chars` changes this at once, with no reload:
-  `wrap` (the default), `nowrap` for one line cut to the width, or a number
-  such as `20` for one line of at most that many characters.
-- The focused agent, the one in the pane you are viewing (for OpenCode, its
-  active tab), has its name underlined.
-  `@tmux-orchestrator-focus-style` changes this at once, with no reload:
-  `underlined` (the default), `bold`, or `none`.
-- While a Claude Code agent has subagents, its row shows two icons: its main
-  thread's state, then the most urgent state among its subagents and how many
-  are running, as in `✓ ●2`. The name gives those columns up.
-- While a Claude Code agent's main thread has background tasks (`Bash` with
-  `run_in_background`, or `Monitor`), its row adds a blue `·` and how many are
-  running, as in `✓ ●1 ·2`. The name gives those columns up too.
-- A Claude Code pane has one agent row. An OpenCode pane has one row per tab, in
-  tab order.
-- A pane shows at most nine agent rows. Further agents collapse into one
-  `+N more` row whose icon is the most urgent state among them.
-- Clicking a session row switches the client to that session. Clicking an agent
-  row switches to its session, selects its window, and focuses its exact pane.
-  For an OpenCode row it also focuses that tab. Clicking `+N more` selects the
-  pane.
-- Double-clicking a session row opens a prompt to rename that tmux session.
-  Double-clicking an agent row renames the agent in Claude Code or OpenCode, so
-  other agents and `claude agents` see the new name too. If the agent does not
-  confirm the rename, tmux shows why and the name stays as it was.
-- When there are more rows than fit, the list keeps the focused agent's row
-  visible. It may trim session rows first, and it does not scroll the terminal.
-
-The last row, `? keys`, opens and closes the keys panel for every client. The
-panel lists the toggle key and every key binding whose command calls the
-reporter, such as the pause bindings under
-[Pause and resume](#pause-and-resume). It reads them when it opens, so bindings
-added later appear the next time.
-
-The plugin rebinds `MouseDown1Status` and `DoubleClick1Status` to handle these
-clicks, which replaces any existing bindings for them.
+| State   | Icon | Colour | Meaning                                    |
+| ------- | ---- | ------ | ------------------------------------------ |
+| working | `●`  | yellow | running a turn                             |
+| blocked | `◉`  | red    | waiting for a permission or an answer      |
+| error   | `×`  | red    | the turn failed; stays until next activity |
+| done    | `✓`  | teal   | turn finished; clears when you view it     |
+| idle    | `○`  | green  | nothing to do                              |
+| unknown | `·`  | grey   | no state yet                               |
 
 ### Attention key
 
-An optional key goes through your agents, across all tmux sessions, those that
-need you first: `blocked`, then `error`, then `done`, the longest waiting first,
-then all the others in sidebar order. Each press goes to the agent after the one
-you view, and starts over after the last. An agent that became blocked, error or
-done since your previous press comes first; one you already passed waits for
-the next lap, so a blocked agent you leave for later does not keep pulling you
-back. It is not bound unless you set it:
+An optional key takes you to the next agent that needs you, across all tmux
+sessions: `blocked`, then `error`, then `done`, then every other agent, then it
+starts over. An agent that just started needing you comes first.
 
 ```tmux
 set -g @tmux-orchestrator-attention-key M-a
-set -g @tmux-orchestrator-attention-table root   # without the prefix
+set -g @tmux-orchestrator-attention-table root   # no prefix needed
 ```
 
-`@tmux-orchestrator-attention-table` names the tmux key table, `prefix` by
-default. The plugin never overwrites a binding of yours. If the agent's tmux
-session is already shown in another terminal window, that window's client
-switches to it; otherwise the client you pressed the key in does. Set
-`@tmux-orchestrator-raise-command` (see [Notifications](#notifications)) to
-bring that terminal window forward.
+### Notifications
 
-### State icons
+An agent entering `blocked`, `error` or `done` notifies you, unless you are
+already looking at it. Clicking a desktop notification takes you to the agent.
+Each agent has at most one desktop notification on screen; a new one replaces
+the previous one.
 
-| State   | Icon | Colour |
-| ------- | ---- | ------ |
-| working | `●`  | yellow |
-| blocked | `◉`  | red    |
-| error   | `×`  | red    |
-| done    | `✓`  | teal   |
-| idle    | `○`  | green  |
-| unknown | `·`  | grey   |
-
-Session rollups use the priority `blocked > error > done > working > idle >
-unknown`. `done` clears when the agent pane is focused. `error` stays until the
-next activity event.
-
-## Notifications
-
-Notifications are sent for transitions into `blocked`, `error`, and `done`.
-They are not sent for `working`, `idle`, `unknown`, repeated states, focus
-clearing, or agent removal.
-
-Each notification channel has its own option, `on` or `off`:
-
-```tmux
-set -g @tmux-orchestrator-notify-tmux on
-set -g @tmux-orchestrator-notify-desktop on
-set -g @tmux-orchestrator-notify-terminal off
-```
-
-- `@tmux-orchestrator-notify-tmux` (default `on`): a message on tmux clients.
-- `@tmux-orchestrator-notify-desktop` (default `on`): `notify-send` on Linux or
-  `osascript` on macOS. Does nothing if neither command exists.
-- `@tmux-orchestrator-notify-terminal` (default `off`): an OSC 9 escape sequence
-  written to the terminal of the most recently active client. The terminal
-  emulator shows it (Ghostty, iTerm2, WezTerm, Windows Terminal), which also
-  works over SSH. It is off by default because those terminals turn it into a
-  system notification, so with the desktop channel on you would see each one
-  twice.
-
-Set all three to `off` to stop notifications. State tracking continues.
-
-Clicking a `notify-send` notification brings a tmux client to the agent: the
-client already showing the agent's window, else one in its tmux session, else
-the most recently active one. tmux cannot raise the terminal window itself, so
-set `@tmux-orchestrator-raise-command` to a shell command that does it. The
-command gets `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`,
-`TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and
-`TMUX_ORCHESTRATOR_CLIENT_TTY`. On niri:
+To bring the terminal window forward on a click or the attention key, set
+`@tmux-orchestrator-raise-command`. On niri:
 
 ```tmux
 set -g @tmux-orchestrator-raise-command '~/.tmux/plugins/tmux-orchestrator/examples/raise-command-niri.sh'
 ```
 
-A click works for five minutes after the notification appears; after that it
-does nothing.
+To silence everything for a while, bind a key to `notify toggle` (see
+[Commands](#commands)).
 
-`tmux-orchestrator focus-agent --pane ID` does the same as a click.
+## Options
 
-Notification text is:
+Set options above the line that runs TPM (`run '~/.tmux/plugins/tpm/tpm'`). The
+ones marked _live_ can also be changed later and apply at once.
 
-```text
-◉ fix-login blocked
-◉ Agent blocked: fix-login
+| Option                                     | Default      | Description                                                                                    |
+| ------------------------------------------ | ------------ | ---------------------------------------------------------------------------------------------- |
+| `@tmux-orchestrator-side`                  | `left`       | Sidebar side: `left` or `right`.                                                               |
+| `@tmux-orchestrator-width`                 | `28`         | Sidebar width in columns.                                                                      |
+| `@tmux-orchestrator-toggle-key`            | `O`          | Key, after the prefix, that shows and hides the sidebar.                                       |
+| `@tmux-orchestrator-name-max-chars`        | `wrap`       | _Live._ `wrap` long names over up to four lines, `nowrap` to cut them, or a maximum length.    |
+| `@tmux-orchestrator-focus-style`           | `underlined` | _Live._ How the agent you are viewing is marked: `underlined`, `bold` or `none`.               |
+| `@tmux-orchestrator-time`                  | `on`         | _Live._ `off` hides the state time.                                                            |
+| `@tmux-orchestrator-time-on-view`          | `keep`       | _Live._ `reset` restarts a `done` agent's time when you view it.                               |
+| `@tmux-orchestrator-attention-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
+| `@tmux-orchestrator-attention-table`       | `prefix`     | Key table of the attention key; `root` binds it without the prefix.                            |
+| `@tmux-orchestrator-notify-desktop`        | `on`         | _Live._ Desktop notifications (`notify-send` or `osascript`).                                  |
+| `@tmux-orchestrator-notify-tmux`           | `on`         | _Live._ A message in the status line of the tmux clients not viewing the agent.                |
+| `@tmux-orchestrator-notify-terminal`       | `off`        | _Live._ An OSC 9 notification shown by the terminal (Ghostty, iTerm2, WezTerm), even over SSH. |
+| `@tmux-orchestrator-notify-timeout`        | `5`          | _Live._ Seconds a desktop notification stays open and can be clicked.                          |
+| `@tmux-orchestrator-raise-command`         | unset        | _Live._ Shell command that brings the agent's terminal window forward.                         |
+| `@tmux-orchestrator-focus-events`          | `on`         | `off` leaves tmux's `focus-events` alone; agents in background windows then do not notify.     |
+| `@tmux-orchestrator-opencode-auto-install` | `on`         | `off` stops the plugin from linking the OpenCode adapter.                                      |
+
+The plugin never overwrites a key binding of yours: if the toggle or attention
+key is taken, it keeps your binding and tells you.
+
+## Commands
+
+The plugin runs the reporter for you; these commands are for bindings, scripts
+and recovery. The examples call the reporter `tmux-orchestrator`:
+
+```sh
+alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
 ```
 
-Kind and tmux location are deliberately omitted. A client that is viewing the
-agent's pane (and, for OpenCode, its active tab) does not receive the tmux message, and desktop and terminal notifications
-are skipped when any attached client is viewing it. A two-second per-agent cooldown
-applies to tmux `done` messages; `blocked` and `error` bypass it. Desktop and
-terminal notifications have no cooldown.
+| Command                                  | What it does                                                                           |
+| ---------------------------------------- | -------------------------------------------------------------------------------------- |
+| `notify pause`, `resume`, `toggle`       | Stop or restart all notifications. The sidebar keeps updating; pause survives reloads. |
+| `notify status`                          | Show whether notifications are paused and each channel's setting.                      |
+| `focus-agent --pane ID`                  | Go to an agent, as a notification click does.                                          |
+| `toggle`                                 | Show or hide the sidebar.                                                              |
+| `reconcile`                              | Recompute every session summary after a crash or stale state.                          |
+| `gc`                                     | Remove agents of panes whose process exited (`remain-on-exit`).                        |
+| `cleanup`                                | Remove all agent options and hooks from the running server.                            |
+| `install opencode`, `uninstall opencode` | Link or unlink the OpenCode adapter by hand.                                           |
 
-The plugin turns on tmux's `focus-events`, so that a client in a terminal
-window without focus does not count as viewing: an agent shown only in a
-background window still notifies, and its `done` state clears when you focus
-that window. The terminal must report focus changes (Ghostty, kitty, WezTerm,
-iTerm2 and foot do). Set `@tmux-orchestrator-focus-events off` to leave
-`focus-events` alone; if it is then off, every client counts as looking at its
-pane, the plugin says so when it loads, and `notify status` shows it.
+Example bindings:
 
-To stop notifications for a while without changing these options, see
-[Pause and resume](#pause-and-resume).
+```tmux
+bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify toggle'
+```
 
-## Claude Code events
+## How it works
+
+Details for advanced users.
+
+### Claude Code events
 
 The plugin forwards these hooks to the reporter, which maps them:
 
@@ -265,237 +185,130 @@ The plugin forwards these hooks to the reporter, which maps them:
 | `SubagentStart`                                        | lists the subagent                  |
 | `SessionEnd`                                           | removed                             |
 
-Subagent tool calls and permission requests count toward the main agent. A
-subagent never starts, completes or ends it. While the main agent or a subagent
-waits for the user, the agent stays `blocked` until that same one calls a tool
-again, a subagent that waits ends (`SubagentStop`), or a new turn starts.
-`PostToolUseFailure` is not treated as an agent error; it only ends that one's
-wait. Parallel tool calls of the same agent cannot be told apart, so one of them
-finishing clears a wait raised by another. A `Stop` after an `error` keeps `error` until new activity.
+- Subagent tool calls and permission requests count toward the main agent. A
+  waiting agent stays `blocked` until the one that waits calls a tool again,
+  ends, or a new turn starts. Parallel tool calls cannot be told apart, so one
+  finishing clears a wait raised by another.
+- Subagents are listed from their first event until `SubagentStop`. One silent
+  for 30 minutes is dropped. When the last one ends, the agent takes its main
+  thread's state.
+- Background tasks (`Bash` with `run_in_background`, or `Monitor`) are added at
+  launch. Each `Stop` hook lists the tasks still running, and the sidebar takes
+  that list. A task no `Stop` lists for six hours is dropped. Tasks never change
+  the state or notify.
+- Claude Code sends no hook for Esc. While a turn runs, a watcher reads the
+  session's status from Claude Code's undocumented session registry every 2
+  seconds and moves the agent to `idle` when the turn was interrupted (SPEC.md
+  D6).
+- The agent name is the session title, else the working-directory basename,
+  refreshed from `claude agents --json`.
+- The last hook is stored in the pane option `@agent_1_event`, for example
+  `claude:StopFailure:rate_limit`.
+- A background session shown with `claude attach <id|name>` is the agent of
+  that pane while the pane shows it. Events from a session no pane shows are
+  ignored.
 
-The sidebar also lists each subagent, from its first event until its
-`SubagentStop`, with its own state. An interrupt drops the list, a background
-subagent comes back with its next event, and one silent for 30 minutes is
-dropped. When the last subagent ends, the agent takes its main thread's state, so
-a background subagent finishing after its main thread does not leave the agent
-`working`.
+### OpenCode events
 
-Background tasks the main thread launches (`Bash` with `run_in_background`, or
-`Monitor`) are listed from their `PostToolUse` hook. Claude Code sends no hook
-when one ends, but each `Stop` hook lists the tasks still running, and the
-sidebar takes that list. When a task ends while the agent is idle, Claude Code
-starts a turn to deliver its result, so the count updates within seconds; inside
-a long turn it updates when the turn ends. Esc keeps the list, a new session
-drops it, and a task no `Stop` has listed for six hours is dropped. Background
-tasks never change the agent state or send notifications.
-
-Claude Code sends no hook when you interrupt a turn with Esc. While a turn runs,
-a background watcher reads the session's status from Claude Code's session
-registry every 2 seconds. When the session is `idle` twice in a row and no `Stop`
-arrived, the agent moves to `idle`. The watcher stops when the turn ends, when
-the next prompt starts a new one, or when the session exits. It relies on the
-registry file, which Claude Code does not document (SPEC.md D6).
-
-The last hook received is stored in the pane option `@agent_1_event`, for
-example `claude:StopFailure:rate_limit`.
-
-The session title is used when the hook provides one. Otherwise the reporter
-uses the working-directory basename immediately and asynchronously refreshes the
-name from `claude agents --json` on `SessionStart` and `UserPromptSubmit`.
-If the lookup is slow or fails, the fallback name remains.
-
-### Background sessions
-
-A background session shown in a pane with `claude attach <id|name>` is that
-pane's agent. Its hooks run outside tmux, so the reporter finds the pane whose
-`claude attach` argument matches the session: the start of its id, or part of
-its name when only one session's name contains it. Selecting the pane right
-after attaching adds the row with the state Claude Code reports. The row is
-removed once the pane stops showing the session (exit, `←` to the agent view,
-or `Ctrl+Z`). Events from a session that no pane shows are ignored and send no
-notification.
-
-## OpenCode events
-
-The adapter runs in the OpenCode TUI and reports each open tab as its own agent.
-It forwards these events to the reporter, which maps them:
+The adapter runs in the OpenCode TUI and reports each open tab as its own agent:
 
 - `session.execution.started`, `permission.replied`, `form.replied` and
-  `form.cancelled` to `working`.
-- `permission.asked` and `form.created` to `blocked`.
-- `session.execution.succeeded` to `done` after work, otherwise to `idle`.
-- `session.execution.failed` to `error`.
-- `session.execution.interrupted` to `idle`.
-- `session.renamed` to a new agent name.
+  `form.cancelled` → `working`.
+- `permission.asked` and `form.created` → `blocked`.
+- `session.execution.succeeded` → `done` after work, otherwise `idle`.
+- `session.execution.failed` → `error`.
+- `session.execution.interrupted` → `idle`.
+- `session.renamed` → a new agent name.
 
-Other events, such as streamed text, stay in the TUI.
+Opening a tab adds an agent, closing it removes the agent, and exiting the TUI
+removes all of the pane's agents. Subagents run as child sessions and count
+toward their root tab. The reporter focuses and renames tabs over a Unix socket
+the TUI opens in `tmux-orchestrator-<uid>/` under `$XDG_RUNTIME_DIR` (or the
+system temporary directory).
 
-Opening a tab adds an agent: `working` if the session is running, `blocked` if
-it has a pending permission or form, and `idle` otherwise. Closing a tab removes
-that agent without deleting its session. Exiting the TUI removes all of the
-pane's agents. With tabs disabled, the session the TUI shows is the pane's only
-agent.
+### Notifications
 
-Subagents run as child sessions and count toward their root tab. A child asking
-for permission or input blocks the root. A child finishing, failing or being
-interrupted does not end the root's turn.
+- Notification text is `◉ fix-login blocked` in tmux and `◉ Agent blocked:
+fix-login` on the desktop and terminal. Kind and location are left out.
+- A client viewing the agent (its pane, and for OpenCode its active tab) gets no
+  tmux message. Desktop and terminal notifications are skipped when any client
+  views the agent.
+- The plugin turns on tmux's `focus-events`, so a terminal window without focus
+  does not count as viewing. The terminal must report focus changes (Ghostty,
+  kitty, WezTerm, iTerm2 and foot do).
+- tmux `done` messages have a two-second per-agent cooldown; `blocked` and
+  `error` skip it.
+- A click on a `notify-send` notification brings one client to the agent: the
+  one showing its window, else one in its tmux session, else the most recently
+  active one. The raise command then runs with `TMUX_ORCHESTRATOR_PANE`,
+  `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`,
+  `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` set.
+- `osascript` notifications on macOS cannot be clicked.
+- The terminal channel is off by default because those terminals turn it into a
+  system notification too, so with desktop on you would see each one twice.
 
-A completion after `session.execution.failed` keeps `error` until new activity.
-The tab's session title is the agent name. Without a title, the working-directory
-basename is used.
+### Sidebar details
 
-Clicking a tab's row focuses that tab, and double-clicking it renames the tab's
-session. The reporter sends these requests over a Unix socket that the TUI opens
-in `tmux-orchestrator-<uid>/` under `$XDG_RUNTIME_DIR`, or under the system
-temporary directory when it is unset.
-
-## Optional command line commands
-
-The plugin runs the reporter for you. These commands are for scripts, custom
-bindings, and recovery.
-
-The shell examples in this README call the reporter `tmux-orchestrator`. To run
-them as written, define an alias:
-
-```sh
-alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
-```
-
-### Pause and resume
-
-Pause is global and indefinite. It suppresses every channel while states keep
-updating and the sidebar keeps rendering. There is no default pause key and no
-pause indicator in the sidebar.
-
-```sh
-tmux-orchestrator notify pause
-tmux-orchestrator notify resume
-tmux-orchestrator notify toggle
-tmux-orchestrator notify status
-```
-
-`notify toggle` flips between the two.
-
-Example tmux bindings:
-
-```tmux
-bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
-bind-key M run-shell -b '#{@tmux-orchestrator-reporter} notify resume'
-```
-
-Pause survives plugin reloads and client detach because it is a tmux option.
-`notify status` reports the pause state, each channel's setting, and whether a
-desktop command is available.
-
-### Maintenance
-
-Recompute every session summary after an unexpected shutdown or stale state:
-
-```sh
-tmux-orchestrator reconcile
-```
-
-Remove state from panes whose process has exited (for `remain-on-exit` panes):
-
-```sh
-tmux-orchestrator gc
-```
-
-Toggle the sidebar from a script or binding:
-
-```sh
-tmux-orchestrator toggle
-```
-
-Remove all agent options and this plugin's hook indexes from a running server:
-
-```sh
-tmux-orchestrator cleanup
-```
-
-### OpenCode adapter
-
-Link the adapter by hand, for example when auto-install is off:
-
-```sh
-tmux-orchestrator install opencode
-```
-
-`tmux-orchestrator uninstall opencode` removes the link. Both commands leave
-alone any path at that location that is not a link to a `plugins/opencode`
-directory.
+- Viewing a `done` agent clears it to `idle`; its time keeps running unless
+  `@tmux-orchestrator-time-on-view` is `reset`.
+- When rows do not fit, the list keeps the focused agent visible.
+- The plugin rebinds `MouseDown1Status` and `DoubleClick1Status`, replacing any
+  bindings of yours for them.
+- The sidebar's on/off state is kept in `@tmux-orchestrator-enabled`, so a
+  reload does not bring back a hidden sidebar.
+- The adapters find the reporter through the global option
+  `@tmux-orchestrator-reporter`; the tmux plugin holds its only copy.
 
 ## Development
 
 Work from a git checkout, here `/path/to/checkout`. Load the tmux plugin from it
-instead of TPM:
+instead of TPM, and start Claude Code with the checkout's plugin:
 
 ```tmux
 run-shell '/path/to/checkout/tmux-orchestrator.tmux'
 ```
 
-Start Claude Code with the checkout's plugin:
-
 ```sh
 claude --plugin-dir /path/to/checkout/plugins/claude
 ```
 
-The adapters always use the reporter of the tmux plugin copy that is loaded.
-After switching between TPM and a checkout, reload tmux with
-`tmux source-file ~/.tmux.conf` (or `~/.config/tmux/tmux.conf`); running agents use the new reporter on their
-next event. When OpenCode is installed, its link follows the switch; restart OpenCode to
-load it.
-
-An adapter newer than the loaded reporter is ignored, and tmux shows a one-time
-message asking to update the tmux plugin.
+The adapters use the reporter of the loaded tmux plugin copy. After switching
+between TPM and a checkout, reload tmux; running agents use the new reporter on
+their next event, and OpenCode needs a restart. An adapter newer than the loaded
+reporter is ignored, and tmux shows a one-time message.
 
 Run the tests with `bash tests/<name>-test.sh` for each shell suite and
-`node --test tests/` for the OpenCode adapter. The tests start private tmux
-servers and do not touch the running one.
+`node --test tests/` for the OpenCode adapter. They start private tmux servers
+and do not touch the running one.
 
-Some features rely on internals that Claude Code and OpenCode do not document,
-such as the message that renames a running Claude session. After updating
-either, run the contract tests against the installed versions:
+Some features rely on undocumented Claude Code and OpenCode internals. After
+updating either, run the contract tests against the installed versions:
 
 ```sh
 bash tests/contract/claude-test.sh
 bash tests/contract/opencode-test.sh
 ```
 
-Each starts a real agent in a private tmux server, sends it no prompt, and needs
-no model. `TMUX_ORCHESTRATOR_CONTRACT_TURN=1` makes the Claude test also interrupt
-one Haiku turn, to check interrupt detection end to end. The Claude test needs the checkout to be a folder Claude already
-trusts. The OpenCode test uses its own configuration and session store.
+Each starts a real agent in a private tmux server and needs no model.
+`TMUX_ORCHESTRATOR_CONTRACT_TURN=1` also interrupts one Haiku turn in the Claude
+test. The Claude test needs the checkout to be a folder Claude already trusts.
 
 ## Known limitations
 
 - tmux 3.9 or newer is required; there is no fallback sidebar.
-- State is derived from lifecycle events only. A crashed agent that never sends
-  `SessionEnd` can leave a stale row until `reconcile`, `gc`, or the pane closes.
-- Claude Code interrupts are read from its session registry, which is
-  undocumented. If a Claude Code update changes it, an interrupted agent stays
-  `working` until your next prompt; `tests/contract/claude-test.sh` detects it.
-- An OpenCode agent on a background tab stays `done` until its tab becomes
-  active, even when its pane is focused.
-- Focusing an OpenCode tab from the sidebar needs `python3` or `nc -U`. Without
-  either, the click selects the pane but not the tab.
-- `done` clears only when a pane, window or session selection happens. An agent
-  that finishes in the pane you are already looking at stays `done` until you
-  select something or click its row.
-- Notifications omit location, so two agents with the same name are ambiguous;
-  use the sidebar to disambiguate.
+- A crashed agent that never sends `SessionEnd` can leave a stale row until
+  `reconcile`, `gc`, or the pane closes.
+- Claude Code interrupts and agent renames use undocumented Claude Code
+  internals (SPEC.md D6, D9). If an update changes them, interrupted agents stay
+  `working` and renames fail; `tests/contract/claude-test.sh` detects it.
+- `done` clears only on a pane, window or session selection, so an agent that
+  finishes in the pane you are looking at stays `done` until you select
+  something. An OpenCode agent on a background tab stays `done` until its tab
+  becomes active.
+- Notifications omit location, so two agents with the same name are ambiguous.
 - A Claude Code background session is tracked only while a pane shows it with
-  `claude attach`, and only on the default tmux server. After `←` back to the
-  agent view, its row stays until the next pane, window or session selection or
-  the session's next hook.
-- A very long `? keys` panel fills the sidebar and hides the agent list until
-  you close it; the keys panel is not a scrolling list.
-- State disappears when the tmux server exits. There is no external history.
-- Renaming a Claude agent uses an undocumented Claude Code message (see
-  SPEC.md D9). If an update changes it, renaming fails with a message until the
-  plugin is updated; `tests/contract/claude-test.sh` detects it.
-- Renaming an agent needs `python3` or `nc -U`.
-- The Claude name lookup depends on `claude agents --json`; a missing or slow
-  lookup falls back to the directory basename.
-- Desktop delivery depends on `notify-send` or `osascript`; a command that
-  accepts a notification and drops it cannot be detected.
+  `claude attach`, and only on the default tmux server.
+- A long `? keys` panel hides the agent list until you close it.
+- State disappears when the tmux server exits.
+- A desktop notifier that accepts a notification and drops it cannot be
+  detected.
