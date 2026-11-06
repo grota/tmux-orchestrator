@@ -15,9 +15,12 @@ mkdir -p "$FAKE"
 cat >"$FAKE/notify-send" <<'EOS'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${NOTIFY_LOG:?}"
+# FAKE_CLICK=1 answers like a click on the notification.
+[[ ${FAKE_CLICK:-} == 1 ]] && printf 'default\n'
+exit 0
 EOS
 chmod +x "$FAKE/notify-send"
-export NOTIFY_LOG
+export NOTIFY_LOG TMUX_ORCHESTRATOR_NOTIFY_SYNC=1
 export PATH="$FAKE:$PATH"
 
 cleanup() {
@@ -292,6 +295,47 @@ assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 "$BIN" tabs --pane "$PT" --active ses_a --tab ses_a idle front --tab ses_c pending late
 "$BIN" tabs --pane "$PT" --active ses_a --tab ses_a idle front --tab ses_c pending late
 assert_eq "$(count_lines "$NOTIFY_LOG")" 1
+
+# Clicking a desktop notification brings a client to the agent and runs the
+# notify command.  The client already in the agent's session wins over a more
+# recently active client elsewhere.
+CMD_LOG="$FAKE/command.log"
+tmux -L "$S" set-option -g @tmux-orchestrator-notify-command \
+	"printf '%s|%s|%s|%s\\n' \"\$TMUX_ORCHESTRATOR_PANE\" \"\$TMUX_ORCHESTRATOR_SESSION\" \"\$TMUX_ORCHESTRATOR_CLIENT\" \"\$TMUX_ORCHESTRATOR_CLIENT_TTY\" >$CMD_LOG"
+(env -u TMUX TERM=xterm-256color timeout 60 script -qefc "tmux -L $S attach -t beta" "$CLIENT_LOG.3" >/dev/null 2>&1) &
+CLIENT3_PID=$!
+for _ in $(seq 1 30); do
+	[[ $(tmux -L "$S" list-clients -F '#{client_session}' | grep -c '^beta$' || true) == 1 ]] && break
+	sleep 0.1
+done
+# The client of SESSION with a terminal, and FORMAT read for client NAME.
+tty_client() { tmux -L "$S" list-clients -f '#{!=:#{client_control_mode},1}' -F '#{client_session} #{client_name}' | awk -v s="$1" '$1 == s { print $2 }'; }
+client_fmt() { tmux -L "$S" list-clients -F "#{client_name} $2" | awk -v c="$1" '$1 == c { print $2 }'; }
+ALPHA_CLIENT=$(tty_client alpha)
+BETA_CLIENT=$(tty_client beta)
+tmux -L "$S" select-window -t alpha:tabs
+: >"$NOTIFY_LOG"
+FAKE_CLICK=1 report_state "$P0" working fix-login claude s0
+FAKE_CLICK=1 report_state "$P0" blocked fix-login claude s0
+assert_contains "$NOTIFY_LOG" '-A default=Focus'
+assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{pane_id}')" "$P0"
+assert_eq "$(client_fmt "$BETA_CLIENT" '#{session_name}')" beta
+assert_eq "$(cat "$CMD_LOG")" "$P0|alpha|$ALPHA_CLIENT|$ALPHA_CLIENT"
+
+# Without a click nothing moves and the command does not run.
+rm -f "$CMD_LOG"
+tmux -L "$S" select-pane -t "$P1"
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
+assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{pane_id}')" "$P1"
+[[ ! -e $CMD_LOG ]] || fail 'notify command ran without a click'
+
+# focus-agent picks the client showing the agent's window over the others.
+"$BIN" focus-agent --pane "$PB"
+assert_eq "$(cut -d'|' -f3 "$CMD_LOG")" "$BETA_CLIENT"
+assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{session_name}')" alpha
+kill "$CLIENT3_PID" 2>/dev/null || true
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-command
 
 kill "$CLIENT_PID" 2>/dev/null || true
 CLIENT_PID=

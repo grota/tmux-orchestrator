@@ -10,7 +10,7 @@ S="tmux-orchestrator-e2e-$$"
 export TMUX_SOCKET=$S
 TMP=$(mktemp -d)
 CLIENT_LOG="$TMP/client.log"
-export NOTIFY_LOG="$TMP/desktop.log"
+export NOTIFY_LOG="$TMP/desktop.log" TMUX_ORCHESTRATOR_NOTIFY_SYNC=1
 mkdir -p "$TMP/bin"
 cat >"$TMP/bin/notify-send" <<'EOS'
 #!/usr/bin/env bash

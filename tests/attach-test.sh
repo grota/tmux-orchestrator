@@ -9,7 +9,7 @@ BIN="$ROOT/bin/tmux-orchestrator"
 S="tmux-orchestrator-attach-$$"
 export TMUX_SOCKET=$S
 FAKE=$(mktemp -d)
-export FAKE_PS="$FAKE/ps.txt" FAKE_AGENTS="$FAKE/agents.json" NOTIFY_LOG="$FAKE/notify.log"
+export FAKE_PS="$FAKE/ps.txt" FAKE_AGENTS="$FAKE/agents.json" NOTIFY_LOG="$FAKE/notify.log" TMUX_ORCHESTRATOR_NOTIFY_SYNC=1
 
 cleanup() {
 	kill "${CLIENT_PID:-}" 2>/dev/null || true

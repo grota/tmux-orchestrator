@@ -401,15 +401,27 @@ desktop_command() {
 	fi
 }
 
+# notify_desktop NAME STATE PANE SID
 notify_desktop() {
-	local name=$1 state=$2 icon summary cmd escaped
+	local name=$1 state=$2 pane=${3-} sid=${4-} icon summary cmd escaped
 	icon=$(state_icon "$state")
 	summary="$icon Agent $state: $name"
 	cmd=$(desktop_command)
 	[[ -n $cmd ]] || return 0
 	case "$cmd" in
 	notify-send)
-		notify-send -a tmux-orchestrator "$summary" >/dev/null 2>&1 || true
+		# notify-send waits for the click, so the wait runs on its own and the
+		# reporter returns at once.  Tests set TMUX_ORCHESTRATOR_NOTIFY_SYNC=1
+		# to wait for it.
+		if [[ ${TMUX_ORCHESTRATOR_NOTIFY_SYNC:-} == 1 ]]; then
+			notify_click "$pane" "$sid" "$summary" </dev/null >/dev/null 2>&1
+		else
+			(
+				BATCH=()
+				notify_click "$pane" "$sid" "$summary"
+			) </dev/null >/dev/null 2>&1 &
+			disown 2>/dev/null || true
+		fi
 		;;
 	osascript)
 		escaped=${summary//\\/\\\\}
@@ -417,6 +429,73 @@ notify_desktop() {
 		osascript -e "display notification \"$escaped\" with title \"tmux-orchestrator\"" >/dev/null 2>&1 || true
 		;;
 	esac
+}
+
+# Show SUMMARY with a default action, and focus the agent of PANE with agent
+# session SID when the user clicks the notification.  Dismissing it, or no
+# answer within NOTIFY_WAIT seconds, does nothing.
+NOTIFY_WAIT=${TMUX_ORCHESTRATOR_NOTIFY_WAIT:-3600}
+notify_click() {
+	local pane=$1 sid=$2 summary=$3 action
+	local -a run=(notify-send -a tmux-orchestrator -A default=Focus "$summary")
+	command -v timeout >/dev/null 2>&1 && run=(timeout "$NOTIFY_WAIT" "${run[@]}")
+	action=$("${run[@]}" 2>/dev/null) || true
+	[[ $action == default && -n $pane ]] || return 0
+	focus_agent "$pane" "$sid"
+}
+
+# The client to bring to PANE: one already showing its window, then one in its
+# tmux session, then the most recently active one.  Control-mode clients have
+# no screen and are skipped.
+focus_client() {
+	local pane=$1 window session best='' best_rank=-1 best_act=-1
+	local act name cwin csess rank
+	IFS=' ' read -r window session <<<"$(tmux_do display-message -p -t "$pane" '#{window_id} #{session_id}')"
+	[[ -n $window ]] || return 0
+	while IFS=' ' read -r act name cwin csess; do
+		[[ -n $name ]] || continue
+		rank=0
+		[[ $csess == "$session" ]] && rank=1
+		[[ $cwin == "$window" && $csess == "$session" ]] && rank=2
+		if ((rank > best_rank || (rank == best_rank && act > best_act))); then
+			best=$name best_rank=$rank best_act=$act
+		fi
+	done < <(tmux_do list-clients -f '#{!=:#{client_control_mode},1}' \
+		-F '#{client_activity} #{client_name} #{window_id} #{session_id}' || true)
+	printf '%s' "$best"
+}
+
+# Bring a client to the agent of PANE with agent session SID (its OpenCode tab
+# too), then run @tmux-orchestrator-notify-command, if set, so it can raise the
+# terminal window.  The command gets the pane and client in its environment.
+focus_agent() {
+	local pane=$1 sid=${2-} client slot='' i n command cpid='' ctty='' session
+	[[ -n $(tmux_do display-message -p -t "$pane" '#{pane_id}') ]] || return 0
+	client=$(focus_client "$pane")
+	if [[ -n $client ]]; then
+		tmux_ok switch-client -c "$client" -t "$pane"
+		IFS=' ' read -r cpid ctty <<<"$(tmux_do display-message -p -c "$client" '#{client_pid} #{client_tty}')"
+	fi
+	tmux_ok select-window -t "$pane"
+	tmux_ok select-pane -t "$pane"
+	if [[ -n $sid ]]; then
+		n=$(get_pane_opt "$pane" @agent_n)
+		[[ $n =~ ^[0-9]+$ ]] || n=0
+		for ((i = 1; i <= n; i++)); do
+			[[ $(get_pane_opt "$pane" "@agent_${i}_sid") == "$sid" ]] && slot=$i && break
+		done
+		if [[ -n $slot && $(get_pane_opt "$pane" "@agent_${slot}_kind") == opencode ]]; then
+			send_focus "$pane" "$sid"
+		fi
+	fi
+	focus_agents
+	command=$(get_global @tmux-orchestrator-notify-command)
+	[[ -n $command ]] || return 0
+	session=$(tmux_do display-message -p -t "$pane" '#{session_name}')
+	TMUX_ORCHESTRATOR_PANE=$pane TMUX_ORCHESTRATOR_SESSION=$session \
+		TMUX_ORCHESTRATOR_CLIENT=$client TMUX_ORCHESTRATOR_CLIENT_PID=$cpid \
+		TMUX_ORCHESTRATOR_CLIENT_TTY=$ctty \
+		sh -c "$command" </dev/null >/dev/null 2>&1 || true
 }
 
 # Notify for slot I of PANE, which just entered STATE.  Uses the loaded slots.
@@ -464,7 +543,7 @@ notify_agent() {
 	fi
 
 	if ((any_view == 0)); then
-		((desktop)) && notify_desktop "$name" "$state"
+		((desktop)) && notify_desktop "$name" "$state" "$pane" "${SID[i]-}"
 		((terminal)) && notify_terminal "$name" "$state"
 	fi
 	return 0
@@ -1338,6 +1417,7 @@ usage: tmux-orchestrator <command> [options]
   register      store the OpenCode control socket of a pane
   refresh-name  re-read the agent name from `claude agents --json`
   focus         update the agents of the panes clients view
+  focus-agent   bring a client to an agent: --pane ID [--session-id ID]
   select ROW    act on a sidebar row
   rename ROW NAME  rename the agent on a sidebar row (%P:<slot>) in the agent
   rename-prompt ROW CLIENT  ask CLIENT for a new name for that agent
@@ -1466,6 +1546,18 @@ main() {
 		done
 		pane=${pane:-${TMUX_PANE:-}}
 		[[ -n $pane && -n $socket ]] && set_pane_opt "$pane" @agent_socket "$socket"
+		;;
+	focus-agent)
+		local pane='' sid=''
+		while (($#)); do
+			case "$1" in
+			--pane) pane=$2; shift 2 ;;
+			--session-id) sid=$2; shift 2 ;;
+			*) shift ;;
+			esac
+		done
+		[[ -n $pane ]] || { printf 'usage: tmux-orchestrator focus-agent --pane ID [--session-id ID]\n' >&2; return 2; }
+		focus_agent "$pane" "$sid"
 		;;
 	watch-interrupt)
 		local pane='' sid='' token=''

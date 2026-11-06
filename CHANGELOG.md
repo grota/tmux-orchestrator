@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Clicking a desktop notification brings a tmux client to the agent.
+- `@tmux-orchestrator-notify-command` option, run after a notification click, with `examples/notify-command-niri.sh` for niri.
+- `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.
 - `@tmux-orchestrator-notify-tmux`, `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.
 - `@tmux-orchestrator-name-max-chars` option: `wrap` (default), `nowrap` or a character limit.

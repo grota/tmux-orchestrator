@@ -182,6 +182,20 @@ set -g @tmux-orchestrator-notify-terminal off
 
 Set all three to `off` to stop notifications. State tracking continues.
 
+Clicking a `notify-send` notification brings a tmux client to the agent: the
+client already showing the agent's window, else one in its tmux session, else
+the most recently active one. tmux cannot raise the terminal window itself, so
+set `@tmux-orchestrator-notify-command` to a shell command that does it. The
+command gets `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`,
+`TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and
+`TMUX_ORCHESTRATOR_CLIENT_TTY`. On niri:
+
+```tmux
+set -g @tmux-orchestrator-notify-command '~/.tmux/plugins/tmux-orchestrator/examples/notify-command-niri.sh'
+```
+
+`tmux-orchestrator focus-agent --pane ID` does the same as a click.
+
 Notification text is:
 
 ```text

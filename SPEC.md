@@ -1288,6 +1288,30 @@ The system SHALL provide one global option per notification channel, each accept
 - **WHEN** `@tmux-orchestrator-notify` is `off` and the three channel options are unset
 - **THEN** notifications are delivered with the channel defaults
 
+### Focus from a desktop notification
+
+A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-notify-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter, and the wait MUST end after an hour. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
+
+#### Scenario: Click on a blocked agent
+
+- **WHEN** the user clicks the notification `◉ Agent blocked: fix-login` while a client in the same tmux session shows another window
+- **THEN** that client switches to the agent's pane and the notify command runs with that client's pid and tty
+
+#### Scenario: Client elsewhere
+
+- **WHEN** the only client is attached to another tmux session and the user clicks the notification
+- **THEN** that client switches to the agent's session, window and pane
+
+#### Scenario: Notification dismissed
+
+- **WHEN** the user dismisses the notification or it expires
+- **THEN** no client moves and the notify command does not run
+
+#### Scenario: macOS
+
+- **WHEN** the desktop command is `osascript`
+- **THEN** the notification has no action and clicking it does nothing
+
 ## 6. Decisions
 
 ### D1. Agent state comes from lifecycle events, not screen scraping
@@ -1436,3 +1460,17 @@ Renaming an agent from the sidebar should rename it in the agent itself, so othe
 - Other agents cannot message a renamed agent by its old name: in Claude Code 2.1.311 the send fails with "No agent named … is reachable". `ListAgents` shows the old name next to the new one ("says it was … until … ago") for ten minutes, and only for a name held at least ten seconds that Claude did not generate itself.
 - OpenCode needs no internal path: its adapter renames through the plugin API (`api.client.session.update`), and `tests/contract/opencode-test.sh` checks it against a real OpenCode TUI.
 - Windows would need the session's auth token; the plugin does not run there.
+
+### D10. A notification click raises the terminal through a user command
+
+Clicking a desktop notification should show the agent. tmux can switch a client to the agent's pane, but it cannot raise the terminal window that runs the client, and how to do that depends on the compositor or window manager. The reporter therefore does the tmux part and hands the window part to a user command, `@tmux-orchestrator-notify-command`, with the client's pid and tty. `examples/notify-command-niri.sh` does it for niri.
+
+**Considered options**
+
+- **Raise the window in the reporter for known compositors.** Rejected: one code path per compositor, none of them testable here.
+- **An XDG activation token from `notify-send --activation-token-fd`.** Rejected: only the terminal itself can use the token, and the reporter cannot pass it to the terminal.
+
+**Consequences**
+
+- `notify-send` runs in the background with `--wait` semantics and stays until the notification is clicked, dismissed or an hour passes.
+- Terminals that run several windows from one process (Ghostty, kitty, foot server) share one pid. The niri example tells them apart by writing a unique title to the client's tty for a moment, then restores the window's old title.
