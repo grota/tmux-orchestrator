@@ -15,6 +15,11 @@ mkdir -p "$FAKE"
 cat >"$FAKE/notify-send" <<'EOS'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${NOTIFY_LOG:?}"
+# -p prints the notification ID, 7 unless FAKE_ID says otherwise.
+[[ " $* " == *' -p '* ]] && printf '%s\n' "${FAKE_ID:-7}"
+# FAKE_BEFORE_CLICK runs before the answer, as if something happened meanwhile.
+# The pause lets the reporter store the ID first.
+[[ -n ${FAKE_BEFORE_CLICK:-} ]] && sleep 0.3 && eval "$FAKE_BEFORE_CLICK"
 # FAKE_CLICK=1 answers like a click on the notification.
 [[ ${FAKE_CLICK:-} == 1 ]] && printf 'default\n'
 exit 0
@@ -329,6 +334,40 @@ report_state "$P0" working fix-login claude s0
 report_state "$P0" blocked fix-login claude s0
 assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{pane_id}')" "$P1"
 [[ ! -e $CMD_LOG ]] || fail 'notify command ran without a click'
+
+# Each notification asks for its ID; the agent's open one is replaced, and
+# the option is cleared once its notification is gone.
+assert_contains "$NOTIFY_LOG" '-p -t 5000 -A default=Focus'
+! grep -aFq -- ' -r ' "$NOTIFY_LOG" || fail 'replaced without an open notification'
+assert_eq "$(opt "$P0" @agent_notify_s0)" ''
+tmux -L "$S" set-option -p -t "$P0" @agent_notify_s0 '42 open'
+: >"$NOTIFY_LOG"
+report_state "$P0" working fix-login claude s0
+report_state "$P0" blocked fix-login claude s0
+assert_contains "$NOTIFY_LOG" '-r 42'
+assert_eq "$(opt "$P0" @agent_notify_s0)" ''
+
+# A click reaching a waiter whose notification a newer one replaced is left
+# to the newer waiter: nothing moves, and the newer one's ID stays.
+FAKE_BEFORE_CLICK="tmux -L $S set-option -p -t $P0 @agent_notify_s0 '7 newer'" \
+	FAKE_CLICK=1 report_state "$P0" working fix-login claude s0
+FAKE_BEFORE_CLICK="tmux -L $S set-option -p -t $P0 @agent_notify_s0 '7 newer'" \
+	FAKE_CLICK=1 report_state "$P0" blocked fix-login claude s0
+assert_eq "$(client_fmt "$ALPHA_CLIENT" '#{pane_id}')" "$P1"
+[[ ! -e $CMD_LOG ]] || fail 'replaced notification acted on a click'
+assert_eq "$(opt "$P0" @agent_notify_s0)" '7 newer'
+tmux -L "$S" set-option -pu -t "$P0" @agent_notify_s0
+
+# @tmux-orchestrator-notify-timeout sets how long the notification stays open;
+# anything but a positive whole number means 5 seconds.
+for pair in 12:12000 soon:5000 0:5000; do
+	tmux -L "$S" set-option -g @tmux-orchestrator-notify-timeout "${pair%%:*}"
+	: >"$NOTIFY_LOG"
+	report_state "$P0" working fix-login claude s0
+	report_state "$P0" blocked fix-login claude s0
+	assert_contains "$NOTIFY_LOG" "-t ${pair#*:} "
+done
+tmux -L "$S" set-option -gu @tmux-orchestrator-notify-timeout
 
 # focus-agent picks the client showing the agent's window over the others.
 "$BIN" focus-agent --pane "$PB"

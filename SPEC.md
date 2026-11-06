@@ -1402,7 +1402,24 @@ The system SHALL provide one global option per notification channel, each accept
 
 ### Focus from a desktop notification
 
-A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-raise-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter, and the wait MUST end after five minutes, after which a click does nothing. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
+A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-raise-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter. The notification SHALL ask the daemon to close it after `@tmux-orchestrator-notify-timeout` seconds, 5 when the option is unset or not a positive whole number, and the wait MUST end at the same time, after which a click does nothing. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
+
+While an agent's previous `notify-send` notification is still open, the next one for that agent SHALL replace it instead of adding another, so each agent shows at most one notification. A click on the replaced notification SHALL focus the agent once.
+
+#### Scenario: Agent notifies again while its notification is open
+
+- **WHEN** `fix-login` enters `done`, and enters `blocked` while `✓ Agent done: fix-login` is still shown
+- **THEN** `◉ Agent blocked: fix-login` takes the place of the `done` notification
+
+#### Scenario: Previous notification gone
+
+- **WHEN** the agent's previous notification expired, was dismissed or was clicked
+- **THEN** the next notification is a new one
+
+#### Scenario: Other agents
+
+- **WHEN** two agents notify while both notifications are open
+- **THEN** both are shown
 
 #### Scenario: Click on a blocked agent
 
@@ -1419,6 +1436,16 @@ A `notify-send` notification SHALL carry a default action, and clicking it SHALL
 - **WHEN** the user dismisses the notification or it expires
 - **THEN** no client moves and the notify command does not run
 
+#### Scenario: Notification timeout
+
+- **WHEN** `@tmux-orchestrator-notify-timeout` is `12`
+- **THEN** `notify-send` is asked to close the notification after 12 seconds, and a click after that does nothing
+
+#### Scenario: Default notification timeout
+
+- **WHEN** `@tmux-orchestrator-notify-timeout` is unset or `soon`
+- **THEN** the notification closes after 5 seconds
+
 #### Scenario: macOS
 
 - **WHEN** the desktop command is `osascript`
@@ -1428,7 +1455,7 @@ A `notify-send` notification SHALL carry a default action, and clicking it SHALL
 
 ### D1. Agent state comes from lifecycle events, not screen scraping
 
-Claude Code and OpenCode both expose lifecycle events, while Herdr derives Claude's state from its rendered screen. We report state from Claude Code hooks and an OpenCode plugin only, and do not parse pane contents. Screen parsing was rejected as a second, version-fragile source of truth that duplicates what the agents already emit.
+Claude Code and OpenCode both expose lifecycle events. We report state from Claude Code hooks and an OpenCode plugin only, and do not parse pane contents. Screen parsing was rejected as a second, version-fragile source of truth that duplicates what the agents already emit.
 
 **Consequences**
 
@@ -1584,7 +1611,7 @@ Clicking a desktop notification, or pressing the attention key, should show the 
 
 **Consequences**
 
-- `notify-send` runs in the background with `--wait` semantics and stays until the notification is clicked, dismissed or five minutes pass. A notification daemon that keeps notifications in a history list still shows a Focus action there after that, and it does nothing.
+- `notify-send` runs in the background with `--wait` semantics and stays until the notification is clicked, dismissed or closed at `@tmux-orchestrator-notify-timeout`. A notification daemon that keeps notifications in a history list still shows a Focus action there after that, and it does nothing.
 - Terminals that run several windows from one process (Ghostty, kitty, foot server) share one pid. The niri example tells them apart by writing a unique title to the client's tty for a moment, then restores the window's old title.
 
 ### D11. Background tasks come from the Stop hook
@@ -1603,3 +1630,19 @@ The sidebar shows how many background tasks a Claude agent's main thread left ru
 - Two reporters for the same pane take turns through a lock directory, because parallel tool calls run their hooks at once and `flock` is missing on macOS. A lock held over about two seconds is taken over.
 - A task that no `Stop` lists for six hours is dropped, so a missed end cannot keep a count forever.
 - The adapter sends `--task` and `--tasks` as optional report options. Older reporters skip them, so the report protocol stays at version 1.
+
+### D12. An agent's open desktop notification is replaced by ID
+
+Notification daemons stack one notification per call, so a busy agent leaves a pile of stale ones. `notify-send -p` prints the ID of the notification it shows, and `notify-send -r ID` replaces that notification. The waiter that `notify-send` runs for the click stores `ID TOKEN` in the pane option `@agent_notify_<session id>`, and clears it when its notification is clicked, dismissed or expires. The next notification for that agent passes `-r ID` only while the option is set.
+
+**Considered options**
+
+- **The `x-canonical-private-synchronous` hint keyed by the agent.** Rejected: it needs no stored state, but not every daemon honours it.
+- **Keep the ID after the notification closes.** Rejected: what a daemon does with the ID of a closed notification is not specified, and a closed one no longer needs replacing.
+- **A slot field such as `@agent_<i>_notify_id`.** Rejected: the waiter runs in the background and slots move when agents come and go; an option keyed by the session ID needs no move and goes away with the pane.
+
+**Consequences**
+
+- A replaced notification keeps its ID, so the old waiter still waits and sees a click on the new one. Only the waiter whose token is in the option acts on the click; the old one ends at its own timeout.
+- An agent without a session ID gets a new notification each time.
+- The macOS `osascript` channel and the terminal channel are unchanged.

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A Claude Code agent's row shows how many background tasks its main thread has running, as a blue `·` and a count.
 - `@tmux-orchestrator-focus-events` option: the plugin turns on tmux's `focus-events` unless it is `off`, and warns when it stays off.
 - Clicking a desktop notification brings a tmux client to the agent.
+- A new `notify-send` notification replaces the agent's previous one while it is still shown.
+- `@tmux-orchestrator-notify-timeout` option: seconds a desktop notification stays open and can be clicked, `5` by default.
 - `@tmux-orchestrator-raise-command` option, run after a notification click or the attention key to bring the terminal window forward, with `examples/raise-command-niri.sh` for niri.
 - `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.

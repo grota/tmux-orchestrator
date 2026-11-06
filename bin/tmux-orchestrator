@@ -443,13 +443,50 @@ notify_desktop() {
 
 # Show SUMMARY with a default action, and focus the agent of PANE with agent
 # session SID when the user clicks the notification.  Dismissing it, or no
-# answer within NOTIFY_WAIT seconds (five minutes), does nothing.
-NOTIFY_WAIT=${TMUX_ORCHESTRATOR_NOTIFY_WAIT:-300}
+# answer within notify_timeout seconds, does nothing.  The daemon is asked to
+# close the notification at the same time.
+#
+# While a notification of the agent is still open, the new one replaces it
+# (SPEC.md D12).  The pane option @agent_notify_<sid> holds "ID TOKEN" for the
+# open one; its waiter clears it when it ends.  A replaced notification keeps
+# its ID, so the old waiter also sees a click on the new one; the token lets
+# only the newest waiter act on it.
+# Seconds a desktop notification stays open: @tmux-orchestrator-notify-timeout,
+# 5 unless it is a positive whole number.
+notify_timeout() {
+	local value
+	value=$(get_global @tmux-orchestrator-notify-timeout)
+	if [[ $value =~ ^[0-9]+$ ]] && ((10#$value > 0)); then
+		printf '%s' "$((10#$value))"
+	else
+		printf 5
+	fi
+}
+
 notify_click() {
-	local pane=$1 sid=$2 summary=$3 action
-	local -a run=(notify-send -a tmux-orchestrator -A default=Focus "$summary")
-	command -v timeout >/dev/null 2>&1 && run=(timeout "$NOTIFY_WAIT" "${run[@]}")
-	action=$("${run[@]}" 2>/dev/null) || true
+	local pane=$1 sid=$2 summary=$3 action='' id='' key='' token old wait
+	wait=$(notify_timeout)
+	local -a run=(notify-send -a tmux-orchestrator -p -t "$((wait * 1000))" -A default=Focus)
+	if [[ -n $pane && -n $sid ]]; then
+		key="@agent_notify_${sid//[^A-Za-z0-9_-]/_}"
+		token="$BASHPID.$RANDOM"
+		old=$(get_pane_opt "$pane" "$key")
+		[[ ${old%% *} =~ ^[0-9]+$ ]] && run+=(-r "${old%% *}")
+	fi
+	run+=("$summary")
+	command -v timeout >/dev/null 2>&1 && run=(timeout "$wait" "${run[@]}")
+	{
+		IFS= read -r id || true
+		[[ -n $key && $id =~ ^[0-9]+$ ]] && set_pane_opt "$pane" "$key" "$id $token"
+		IFS= read -r action || true
+	} < <("${run[@]}" 2>/dev/null || true)
+	if [[ -n $key && $id =~ ^[0-9]+$ ]]; then
+		if [[ $(get_pane_opt "$pane" "$key") == "$id $token" ]]; then
+			unset_pane_opt "$pane" "$key"
+		else
+			action='' # a newer notification replaced this one
+		fi
+	fi
 	[[ $action == default && -n $pane ]] || return 0
 	focus_agent "$pane" "$sid"
 }
