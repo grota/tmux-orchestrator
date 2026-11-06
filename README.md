@@ -55,24 +55,27 @@ OpenCode is installed. Restart OpenCode after the first install.
 
 ### Sidebar
 
-The sidebar lists each tmux session with agents, then its agents. `prefix + O`
-shows and hides it; drag its border to resize it, double-click the border to
-reset the width.
+Every agent you run, in every tmux session, on one always-visible strip. No
+more hunting through windows to find out who is done, who is stuck and who is
+still thinking: one glance tells you. Toggle it with `prefix + O`, drag its
+border to make room, double-click the border to snap it back.
 
-- A **session row** shows the most urgent state, the session name, how many
-  agents are blocked (`◉2`), in error (`×1`) or done (`✓1`), and the agent
-  count. `▸` marks the current session.
-- An **agent row** shows the state icon and name, then the kind (`claude` or
-  `opencode`) and how long the agent has been in its state (`3m12s`).
-- A Claude Code agent with subagents shows a second icon for them and their
-  count (`✓ ●2`); background tasks add a blue `·` and their count (`·2`).
-- An OpenCode pane has one row per tab. A pane shows at most nine agents; the
-  rest collapse into a `+N more` row.
-- **Click** a session row to switch to it, an agent row to go to its exact pane
-  (and OpenCode tab).
-- **Double-click** a session row to rename the tmux session, an agent row to
-  rename the agent in Claude Code or OpenCode.
-- `? keys`, the last row, opens a panel listing the plugin's key bindings.
+- **Session rows** roll up their agents into the single most urgent state, and
+  count who is blocked (`◉2`), failed (`×1`) or done (`✓1`). `▸` marks where
+  you are.
+- **Agent rows** show the state, the name, the kind (`claude` or `opencode`)
+  and how long the agent has been in that state (`3m12s`), so the agent that
+  has been waiting longest stands out.
+- **Subagents and background work** are visible too: a Claude Code agent with
+  subagents shows their state and count (`✓ ●2`), and its background tasks add
+  a blue `·` and their count (`·2`).
+- **Every OpenCode tab** is its own agent. A busy pane shows nine and folds the
+  rest into a `+N more` row.
+- **Click** a session to jump to it, or an agent to land on its exact pane
+  and OpenCode tab.
+- **Double-click** to rename: a session row renames the tmux session, an agent
+  row renames the agent in Claude Code or OpenCode itself.
+- **`? keys`**, the last row, lists every key binding the plugin knows about.
 
 | State   | Icon | Colour | Meaning                                    |
 | ------- | ---- | ------ | ------------------------------------------ |
@@ -85,31 +88,32 @@ reset the width.
 
 ### Attention key
 
-An optional key takes you to the next agent that needs you, across all tmux
-sessions: `blocked`, then `error`, then `done`, then every other agent, then it
-starts over. An agent that just started needing you comes first.
-
-```tmux
-set -g @tmux-orchestrator-attention-key M-a
-set -g @tmux-orchestrator-attention-table root   # no prefix needed
-```
+One key to triage everything. Each press takes you straight to the next agent
+that needs you, across all tmux sessions and terminal windows: blocked ones
+first, then failed, then finished, the longest waiting first. Once those are
+handled it keeps going through every other agent, then starts over. An agent
+that starts needing you jumps the queue, so you never miss it. Pick the key in
+[Options](#options); it is not bound until you do.
 
 ### Notifications
 
-An agent entering `blocked`, `error` or `done` notifies you, unless you are
-already looking at it. Clicking a desktop notification takes you to the agent.
-Each agent has at most one desktop notification on screen; a new one replaces
-the previous one.
+When an agent gets blocked, fails or finishes, you hear about it, unless you
+are already looking at it.
 
-To bring the terminal window forward on a click or the attention key, set
-`@tmux-orchestrator-raise-command`. On niri:
+- **Desktop notifications** reach you wherever you are. Click one and you land
+  on the agent; with a raise command set (see [Options](#options)), its
+  terminal window comes forward too. Each agent keeps at most one notification
+  on screen: a new one replaces the old one instead of piling up.
+- **tmux messages** appear in the status line of every tmux client that is not
+  showing the agent, for a few seconds. You see one only when you are working
+  in another tmux pane at that very moment; a terminal window in the
+  background also gets it, but you are not looking at it then. If the sidebar
+  already tells you enough, turn this channel off.
+- **Terminal notifications** (OSC 9) work even over SSH, in terminals that
+  support them.
 
-```tmux
-set -g @tmux-orchestrator-raise-command '~/.tmux/plugins/tmux-orchestrator/examples/raise-command-niri.sh'
-```
-
-To silence everything for a while, bind a key to `notify toggle` (see
-[Commands](#commands)).
+Need some quiet? Pause every notification with one command (see
+[Commands](#commands)); the sidebar keeps updating.
 
 ## Options
 
@@ -134,6 +138,17 @@ ones marked _live_ can also be changed later and apply at once.
 | `@tmux-orchestrator-raise-command`         | unset        | _Live._ Shell command that brings the agent's terminal window forward.                         |
 | `@tmux-orchestrator-focus-events`          | `on`         | `off` leaves tmux's `focus-events` alone; agents in background windows then do not notify.     |
 | `@tmux-orchestrator-opencode-auto-install` | `on`         | `off` stops the plugin from linking the OpenCode adapter.                                      |
+
+Examples:
+
+```tmux
+set -g @tmux-orchestrator-attention-key M-a
+set -g @tmux-orchestrator-attention-table root   # no prefix needed
+set -g @tmux-orchestrator-notify-tmux off
+set -g @tmux-orchestrator-raise-command '~/.tmux/plugins/tmux-orchestrator/examples/raise-command-niri.sh'
+```
+
+`examples/raise-command-niri.sh` raises the terminal window on niri.
 
 The plugin never overwrites a key binding of yours: if the toggle or attention
 key is taken, it keeps your binding and tells you.
