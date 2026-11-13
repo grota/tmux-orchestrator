@@ -1530,11 +1530,6 @@ The system SHALL provide one global option per notification channel, each accept
 - **WHEN** `@tmux-orchestrator-notify-terminal` is set to `yes`
 - **THEN** the terminal channel uses its default and stays off
 
-#### Scenario: Old options ignored
-
-- **WHEN** `@tmux-orchestrator-notify` is `off` and the channel options are unset
-- **THEN** notifications are delivered with the channel defaults
-
 ### Focus from a desktop notification
 
 A `notify-send` notification SHALL carry a default action, and clicking it SHALL bring one tmux client to the agent's pane, and for an OpenCode agent to its tab. The client SHALL be the one already showing the agent's window, else one attached to the agent's tmux session, else the most recently active one, never a control-mode client. After that, the system SHALL run the shell command in `@tmux-orchestrator-raise-command`, if set, with `TMUX_ORCHESTRATOR_PANE`, `TMUX_ORCHESTRATOR_SESSION`, `TMUX_ORCHESTRATOR_CLIENT`, `TMUX_ORCHESTRATOR_CLIENT_PID` and `TMUX_ORCHESTRATOR_CLIENT_TTY` in its environment, so it can raise the terminal window. Waiting for the click MUST NOT delay the reporter. The notification SHALL ask the daemon to close it after `@tmux-orchestrator-notify-timeout` seconds, 5 when the option is unset or not a positive whole number, and the wait MUST end at the same time, after which a click does nothing. `tmux-orchestrator focus-agent --pane ID [--session-id ID]` SHALL do the same as a click.
@@ -1682,7 +1677,6 @@ Claude Code sends no hook when the user interrupts a turn, and the `idle_prompt`
 - The registry file and its `status` field are internal. `tests/contract/claude-test.sh` checks the field, and with `TMUX_ORCHESTRATOR_CONTRACT_TURN=1` it interrupts a Haiku turn to check detection end to end.
 - A watcher ends when the agent leaves `working`/`blocked`, a new prompt starts a new watcher, or the registry entry disappears or names another session. There is no time limit: the watcher costs one `jq` call per tick.
 - A pause where the main thread is `idle` while a turn is not over would read as an interrupt. None was seen in testing; `waiting` covers permission prompts and questions.
-- Adapters from before this decision still send `--transcript`; the reporter ignores it.
 
 ### D7. Adapters find the reporter through tmux
 
@@ -1794,7 +1788,7 @@ Agent notifications used to appear as a tmux message, `display-message` on every
 **Consequences**
 
 - `notify status` no longer lists a `tmux` line.
-- Agent slots no longer store `@agent_<i>_notified_at`; the option left on running panes is ignored and goes with the pane.
+- Agent slots no longer store `@agent_<i>_notified_at`.
 
 ### D14. Window names come from automatic-rename-format
 

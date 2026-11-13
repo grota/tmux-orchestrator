@@ -171,19 +171,8 @@ assert_eq "$(count_lines "$NOTIFY_LOG")" 1
 ! grep -aFq '◉ default-agent blocked' "$CLIENT_LOG" || fail 'tmux message sent'
 ! grep -aFq $'\e]9;◉ Agent blocked: default-agent' "$CLIENT_LOG" || fail 'terminal on by default'
 
-# The old options are ignored.
-tmux -L "$S" set-option -g @tmux-orchestrator-notify off
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-via none
-: >"$NOTIFY_LOG"
-report_state "$P0" working legacy-agent claude s0
-report_state "$P0" blocked legacy-agent claude s0
-assert_eq "$(count_lines "$NOTIFY_LOG")" 1
-tmux -L "$S" set-option -gu @tmux-orchestrator-notify
-tmux -L "$S" set-option -gu @tmux-orchestrator-notify-via
 
-# All channels off is reported explicitly and delivers nothing.  The removed
-# tmux channel's option changes nothing.
-tmux -L "$S" set-option -g @tmux-orchestrator-notify-tmux on
+# All channels off is reported explicitly and delivers nothing.
 for ch in desktop terminal; do tmux -L "$S" set-option -g "@tmux-orchestrator-notify-$ch" off; done
 "$BIN" notify status | grep -q 'notifications: off' || fail 'off status'
 : >"$NOTIFY_LOG"
@@ -192,7 +181,7 @@ report_state "$P0" blocked off-agent claude s0
 assert_eq "$(tmux -L "$S" show-options -pv -t "$P0" @agent_1_state)" blocked
 assert_eq "$(count_lines "$NOTIFY_LOG")" 0
 ! grep -aFq '◉ off-agent blocked' "$CLIENT_LOG" || fail 'all off still notified'
-for ch in tmux desktop terminal; do tmux -L "$S" set-option -gu "@tmux-orchestrator-notify-$ch"; done
+for ch in desktop terminal; do tmux -L "$S" set-option -gu "@tmux-orchestrator-notify-$ch"; done
 
 # Without a desktop command the desktop channel is silent.
 NODESK="/tmp/tmux-orchestrator-nodesktop-$$"

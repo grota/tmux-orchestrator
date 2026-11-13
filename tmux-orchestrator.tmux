@@ -185,8 +185,6 @@ for ((k = 1; k <= INFO_LINES; k++)); do
 done
 "${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-info-lines "$info_lines"
 "${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$format")"
-# Left by an earlier version that kept the lists in an option.
-"${TMUX_CMD[@]}" set-option -gu @tmux-orchestrator-lists
 
 # Session rows keep the default switch-client -t= behaviour.  Agent rows use a
 # user range that carries the pane ID: tmux's special mouse target (=) resolves
@@ -223,8 +221,7 @@ fi
 next_agent_key=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-next-agent-key 2>/dev/null || true)
 next_agent_table=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-next-agent-table 2>/dev/null || true)
 [[ -n $next_agent_table ]] || next_agent_table=prefix
-# The reporter command was called attention before; such a binding is ours too.
-is_our_next_agent() { [[ $1 == *bin/tmux-orchestrator*' next-agent'* || $1 == *bin/tmux-orchestrator*' attention'* ]]; }
+is_our_next_agent() { [[ $1 == *bin/tmux-orchestrator*' next-agent'* ]]; }
 while IFS='|' read -r table key command; do
 	[[ $table == "$next_agent_table" && $key == "$next_agent_key" ]] && continue
 	is_our_next_agent "$command" && "${TMUX_CMD[@]}" unbind-key -T "$table" "$key"
