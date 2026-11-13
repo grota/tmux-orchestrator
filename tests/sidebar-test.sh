@@ -108,14 +108,12 @@ tmux -L "$S" kill-pane -t "$PO"
 # Session rows keep the default switch-client; agent rows carry their pane ID
 # in a user range because tmux's "=" target resolves to the active pane.
 KEYS=$(tmux -L "$S" list-keys -T root MouseDown1Status)
-# The session and agent lists live in their own option.
-FMT=$(tmux -L "$S" show-options -gv side-status-format)$(tmux -L "$S" show-options -gv @tmux-orchestrator-lists)
+FMT=$(tmux -L "$S" show-options -gv side-status-format)
 [[ $KEYS == *'switch-client -t='* ]] || fail 'missing default switch-client'
 [[ $KEYS == *'select #{mouse_status_range} #{client_name}'* ]] || fail 'missing pane selection'
 ROW3=$(tmux -L "$S" show-options -gv @tmux-orchestrator-row-3)
 [[ $ROW3 == *'range=user|#{pane_id}:3 '* ]] || fail 'agent rows must carry pane and slot'
-[[ $FMT == *'#{E:@tmux-orchestrator-lists}'* ]] || fail 'lists not expanded in the format'
-[[ $(tmux -L "$S" show-options -gv @tmux-orchestrator-lists) == *'#{E:@tmux-orchestrator-row-9}'* ]] || fail 'slot rows not expanded in the lists'
+[[ $FMT == *'#{E:@tmux-orchestrator-row-9}'* ]] || fail 'slot rows not expanded in the format'
 [[ $FMT == *'range=user|#{pane_id}:+'* ]] || fail 'overflow row must carry its pane'
 [[ $FMT != *'row-10'* ]] || fail 'more than nine slots generated'
 [[ $FMT$ROW3 != *'range=pane|'* ]] || fail 'pane ranges cannot target their pane'
@@ -337,7 +335,7 @@ tmux -L "$S" kill-window -t alpha:subs
 
 # The keys panel is closed by default and toggled by its footer row.
 FMT=$(tmux -L "$S" show-options -gv side-status-format)
-[[ $FMT == *'#[align=right]#[range=user|opts]≡ options#[norange] #[range=user|keys]? keys'* ]] || fail 'missing keys footer'
+[[ $FMT == '#[align=right]#[range=user|opts]≡ options#[norange] #[range=user|keys]? keys'* ]] || fail 'options and keys row not first'
 tmux -L "$S" display -p "$FMT" | grep -Fq 'prefix O  toggle' && fail 'keys panel open by default'
 tmux -L "$S" bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
 tmux -L "$S" bind-key M run-shell "'$BIN' reconcile #{pane_id}"
@@ -409,19 +407,20 @@ assert_eq "$(tmux -L "$S" show-options -gv side-status)" right
 "$BIN" select o:side
 assert_eq "$(tmux -L "$S" show-options -gv side-status)" left
 
-# A click on a label opens its description under it and hides the lists; a
+# A click on a label opens its description under it, above the lists; a
 # second click closes it.
 "$BIN" select d:wrap
 PANEL=$(options_text)
 grep -Fxq '  in an ellipsis.' <<<"$PANEL" || fail 'description not shown'
-grep -Fxq 'Sessions' <<<"$PANEL" && fail 'lists shown with a description open'
+grep -Fxq 'Sessions' <<<"$PANEL" || fail 'lists hidden with a description open'
+[[ $(grep -n -Fx '  in an ellipsis.' <<<"$PANEL" | cut -d: -f1) -lt $(grep -n -Fx 'Sessions' <<<"$PANEL" | cut -d: -f1) ]] || fail 'description not above the lists'
 # The description wraps at spaces within the width.
 while IFS= read -r line; do
 	((${#line} <= 28)) || fail "description line too long: [$line]"
 done <<<"$PANEL"
 grep -A2 -Fx '  tmux option:' <<<"$PANEL" | tr -d '\n' | grep -Fxq '  tmux option:  @tmux-orchestrator-  name-wrap' || fail 'option name not shown'
 "$BIN" select d:wrap
-options_text | grep -Fxq 'Sessions' || fail 'lists not back after closing the description'
+options_text | grep -Fq 'tmux option:' && fail 'description not closed'
 "$BIN" select d:wrap
 "$BIN" select opts
 assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-options-info)" ''

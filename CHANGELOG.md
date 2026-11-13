@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The `? keys` entry and its panel moved to the top of the sidebar, next to `≡ options`.
 - With tmux's `focus-events` on, a client in a terminal window without focus no longer counts as viewing its agent: the agent still notifies, and its `done` state clears when the window gets focus.
 - The OpenCode adapter is linked on each plugin load when OpenCode is detected.
 - README command-line commands are grouped under "Optional command line commands".

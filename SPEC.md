@@ -1058,7 +1058,7 @@ Pressing the key SHALL bring the user to another agent, across all tmux sessions
 
 ### Keys panel
 
-The sidebar SHALL end with a right-aligned, clickable `? keys` row that opens and closes the keys panel for all clients. The open panel MUST list the toggle key and every tmux key binding whose command calls the reporter, with its key table, key and reporter subcommand, read when the panel opens. It MUST NOT list fixed mouse actions or tmux's own border actions.
+The sidebar SHALL start with a right-aligned row holding a clickable `? keys` entry that opens and closes the keys panel for all clients. The open panel MUST list the toggle key and every tmux key binding whose command calls the reporter, with its key table, key and reporter subcommand, read when the panel opens. It MUST NOT list fixed mouse actions or tmux's own border actions.
 
 #### Scenario: Open the panel
 
@@ -1111,7 +1111,12 @@ The sidebar SHALL show a clickable `≡ options` entry left of `? keys` that ope
 
 Clicking a value with a list SHALL set the option's next value; a value outside the list MUST go to the first value. Clicking a value with a prompt SHALL ask the clicking client for a new value, prefilled with the current one: an empty answer MUST unset the option, and an answer that is not valid MUST change nothing and show the reason. The answer MUST reach the option unchanged, like rename answers. Every change SHALL apply at once: an option read only at plugin load SHALL make the plugin loader run again. The panel MUST NOT write any file: a reload of the tmux configuration or a tmux restart brings back the configured values.
 
-Clicking a label SHALL open that option's description under its line, with the underlying tmux option, and close the one open before; clicking it again SHALL close it. While a description is open, the sidebar MUST hide the session and agent lists, and the description MUST wrap at spaces to the current sidebar width, following a border drag.
+Clicking a label SHALL open that option's description under its line, with the underlying tmux option, and close the one open before; clicking it again SHALL close it. The description MUST wrap at spaces to the current sidebar width, following a border drag.
+
+#### Scenario: Short window
+
+- **WHEN** the options panel is open with a description and the sidebar is taller than the window
+- **THEN** the options row and the panel are shown in full and the end of the agent list is cut
 
 #### Scenario: Open the options panel
 
@@ -1151,7 +1156,7 @@ Clicking a label SHALL open that option's description under its line, with the u
 #### Scenario: Description
 
 - **WHEN** the user clicks the `names` label
-- **THEN** the session and agent lists are hidden, the description of `names` shows under its line wrapped to the sidebar width, followed by `@tmux-orchestrator-name-wrap`, and a second click brings the lists back
+- **THEN** the description of `names` shows under its line wrapped to the sidebar width, followed by `@tmux-orchestrator-name-wrap`, and a second click closes it
 
 #### Scenario: Restart
 
@@ -1837,7 +1842,7 @@ An open option description wraps live in the sidebar format, like agent names (D
 
 - **Pre-wrapped descriptions at 28 columns.** Rejected: they would not use a wider sidebar and would be cut on a narrower one.
 - **The reporter wraps the text when the description opens.** Rejected: a border drag would leave it wrapped to the old width, as D8 explains for names.
-- **A popup.** Rejected: it covers the pane the user is working in, while the sidebar can make room by hiding its lists.
+- **A popup.** Rejected: it covers the pane the user is working in, while the description fits in the sidebar.
 - **Take the line from a regex capture group.** Rejected: tmux's regex returned a shorter capture than the overall match, cutting lines after a comma.
 - **Nest each rest inside the next.** Rejected: every step uses the text three times, so the format grows exponentially and exceeds tmux's command size.
 
@@ -1846,3 +1851,16 @@ An open option description wraps live in the sidebar format, like agent names (D
 - Descriptions show at most 12 lines.
 - The option name goes on fixed lines under the description, `@tmux-orchestrator-` then the rest, because wrapping would cut it mid-word.
 - `name-wrap` and `name-max-chars` are separate options: cutting the name to `N` characters happens before wrapping, so the wrapped lines read the cut name.
+
+### D17. The options and keys row is at the top of the sidebar
+
+The `≡ options` and `? keys` entries share the sidebar's first row, and their panels open under it, above the session and agent lists. tmux cuts a side status line that is taller than the window at the bottom, and a format can neither measure the remaining height nor anchor content to the bottom. With the panels first, a short window loses the end of the agent list, never the panel the user is working in, and opening a panel or a description moves nothing else.
+
+**Considered options**
+
+- **Keep the row at the bottom and hide the lists while a description is open.** Rejected: the lists disappear even when there is room for them.
+- **Move the row to the top only while the options panel is open.** Rejected: the row would jump, and the keys panel would keep the same risk.
+
+**Consequences**
+
+- Opening a panel pushes the lists down.

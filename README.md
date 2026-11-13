@@ -77,12 +77,12 @@ border to make room, double-click the border to snap it back.
   row renames the agent in Claude Code or OpenCode itself.
 - **Window names** follow the agent in the window's active pane, cut to 20
   characters, and go back to the command when the agent exits.
-- **`≡ options`** opens a panel with every option below except OpenCode
+- **`≡ options`**, on the top row, opens a panel with every option below except OpenCode
   auto-install. Click a value to change it, cycling through its choices or
   typing a new one; an empty answer goes back to the default. Click a label to
   read what the option does. Changes last until tmux restarts, and reloading
   `tmux.conf` brings back the values it sets, so put lasting choices there.
-- **`? keys`**, the last row, lists every key binding the plugin knows about.
+- **`? keys`**, on the top row, lists every key binding the plugin knows about.
 
 | State   | Icon | Colour | Meaning                                    |
 | ------- | ---- | ------ | ------------------------------------------ |

@@ -94,7 +94,6 @@ while IFS= read -r line; do
 	agent_row=*) FMT_AGENT_ROW=${line#agent_row=} ;;
 	more_row=*) FMT_MORE_ROW=${line#more_row=} ;;
 	layout=*) FMT_LAYOUT=${line#layout=} ;;
-	lists=*) FMT_LISTS=${line#lists=} ;;
 	src=*) FMT_SRC=${line#src=} ;;
 	esac
 done <"$CURRENT_DIR/lib/sidebar-format"
@@ -144,9 +143,8 @@ for ((slot = 1; slot <= VISIBLE_SLOTS; slot++)); do
 	"${TMUX_CMD[@]}" set-option -g "@tmux-orchestrator-row-$slot" "$(expand_icons "${agent_row//\{I\}/"$slot"}")"
 	agent_rows+="#{E:@tmux-orchestrator-row-$slot}"
 done
-lists=${FMT_LISTS/\{AGENT_ROWS\}/"$agent_rows"}
-lists=${lists/\{MORE_ROW\}/"$FMT_MORE_ROW"}
-"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-lists "$(expand_icons "$lists")"
+format=${FMT_LAYOUT/\{AGENT_ROWS\}/"$agent_rows"}
+format=${format/\{MORE_ROW\}/"$FMT_MORE_ROW"}
 
 # The options panel, one line per entry of lib/options-panel (SPEC.md D15).
 # Clicking the label (d:<code>) opens its description under it, clicking the
@@ -186,7 +184,9 @@ for ((k = 1; k <= INFO_LINES; k++)); do
 	rest_expr="#{E:@tmux-orchestrator-info-r$k}"
 done
 "${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-info-lines "$info_lines"
-"${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$FMT_LAYOUT")"
+"${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$format")"
+# Left by an earlier version that kept the lists in an option.
+"${TMUX_CMD[@]}" set-option -gu @tmux-orchestrator-lists
 
 # Session rows keep the default switch-client -t= behaviour.  Agent rows use a
 # user range that carries the pane ID: tmux's special mouse target (=) resolves
