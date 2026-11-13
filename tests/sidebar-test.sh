@@ -296,6 +296,18 @@ assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ●1"
 "$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a3
 assert_eq "$(opt "$PS" @agent_1_state)" done
 assert_eq "$(row "$PS" | plain | head -1 | cut -c1-2)" "✓ "
+# A subagent that stops while its own background task runs stays listed as
+# idle and does not keep the agent working; it goes once no list of running
+# tasks has that task.
+"$BIN" report --pane "$PS" --kind claude --event PostToolUse --agent a4 --task t4
+assert_eq "$(opt "$PS" @agent_1_state)" working
+"$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a4 --tasks 't4'
+assert_eq "$(opt "$PS" @agent_1_state)" done
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ○1"
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" ''
+"$BIN" report --pane "$PS" --kind claude --event Stop --session-id ssub --tasks ''
+assert_eq "$(opt "$PS" @agent_1_subagents_n)" ''
+assert_eq "$(opt "$PS" @agent_1_state)" done
 # Background tasks the main thread launched follow the subagents as a blue
 # dot and their count; the name gives them room too.  A Stop hook's list of
 # running tasks replaces them.

@@ -1,0 +1,1 @@
+{"hook_event_name":"PostToolUse","session_id":"sid-start","cwd":"/tmp/project","agent_id":"agent-1","agent_type":"fork","tool_name":"Bash","tool_use_id":"toolu_01ForkBg","tool_input":{"command":"sleep 20; echo forkbg","run_in_background":true},"tool_response":{"stdout":"","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false,"backgroundTaskId":"forkbg1"}}

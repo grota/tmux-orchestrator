@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `@tmux-orchestrator-raise-command` option, run after a notification click or the next agent key to bring the terminal window forward, with `examples/raise-command-niri.sh` for niri.
 - `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.
+- A Claude Code subagent that stops while its own background task runs stays in the subagent indicator as idle.
+- `--task-done` report option.
 - `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.
 - `@tmux-orchestrator-name-max-chars` option: a character limit applied before wrapping.
 - Keys panel, opened from the `? keys` sidebar row, listing the bindings that call the reporter.
@@ -56,6 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING:** `@tmux-orchestrator-notify` and `@tmux-orchestrator-notify-via` options. Use the per-channel options; set both to `off` to replace `notify off`.
 
 ### Fixed
+
+- A Claude Code agent's background task count drops when a task ends, not at the end of the turn.
+- Background tasks of Claude Code subagents no longer count toward the main thread's tasks.
 
 - Pressing Esc in a Claude Code agent that has background shells running now sets it to `idle`; it stayed `working`.
 - `claude attach <id>` resolves by the session's short ID before the session ID prefix.

@@ -112,16 +112,23 @@ agent_waiters() {
 }
 
 # Subagents stay listed this long after their last event, so one that ended
-# without SubagentStop does not stay forever.
+# without SubagentStop does not stay forever.  One waiting on its background
+# tasks gets no events while it waits, so it stays as long as a task does.
 AGENT_SUBAGENT_TTL=1800
 
-# agent_subagents SUBAGENTS KIND EVENT DETAIL ACTOR NOW
+# agent_subagents SUBAGENTS KIND EVENT DETAIL ACTOR NOW STARTED SNAPSHOT HAS_SNAPSHOT
 # The live subagents of a Claude agent after an event, as space-separated
-# id:state:time entries, from SUBAGENTS before it.  A subagent appears on any
-# of its own events and goes with SubagentStop.  An interrupt or a new session
-# drops them all; a background subagent comes back with its next event.
+# id:state:tasks:time entries, from SUBAGENTS before it; tasks are the
+# comma-separated background tasks the subagent launched.  A subagent appears
+# on any of its own events, and STARTED is a task its event launched.  On
+# SubagentStop it goes, unless the hook's list of running tasks (HAS_SNAPSHOT
+# 1, SNAPSHOT the IDs) still has one of its tasks: then it stays idle, waiting
+# for them, until a later list has none.  An interrupt or a new session drops
+# them all; a background subagent comes back with its next event.
 agent_subagents() {
-	local subs=${1-} kind=${2-} event=${3-} detail=${4-} actor=${5:-main} now=${6:-0} state='' out='' e
+	local subs=${1-} kind=${2-} event=${3-} detail=${4-} actor=${5:-main} now=${6:-0}
+	local started=${7-} snapshot=${8-} has_snapshot=${9:-0}
+	local state='' own='' out='' e id rest st tl time t kept ttl
 	if [[ $kind != claude ]]; then
 		printf '%s' "$subs"
 		return 0
@@ -132,17 +139,53 @@ agent_subagents() {
 		esac
 	else
 		case "$(agent_event_meaning "$kind" "$event" "$detail"):$event" in
-		*:SubagentStop) state='' ;;
+		*:SubagentStop) state=idle ;;
 		wait:*) state=blocked ;;
 		*) state=working ;;
 		esac
 	fi
 	for e in $subs; do
-		[[ ${e%%:*} == "$actor" ]] && continue
-		((now - ${e##*:} < AGENT_SUBAGENT_TTL)) || continue
-		out+="${out:+ }$e"
+		id=${e%%:*} rest=${e#*:}
+		st=${rest%%:*} rest=${rest#*:}
+		tl=${rest%:*} time=${rest##*:}
+		if [[ $has_snapshot == 1 ]]; then
+			kept=''
+			for t in ${tl//,/ }; do
+				[[ " $snapshot " == *" $t "* ]] && kept+="${kept:+,}$t"
+			done
+			tl=$kept
+			[[ $st == idle && -z $tl ]] && continue
+			[[ $st == idle ]] && time=$now
+		fi
+		if [[ $id == "$actor" ]]; then
+			own=$tl
+			continue
+		fi
+		ttl=$AGENT_SUBAGENT_TTL
+		[[ $st == idle ]] && ttl=$AGENT_TASK_TTL
+		((now - time < ttl)) || continue
+		out+="${out:+ }$id:$st:$tl:$time"
 	done
-	[[ -n $state ]] && out+="${out:+ }$actor:$state:$now"
+	if [[ -n $state ]]; then
+		[[ -n $started && ,$own, != *",$started,"* ]] && own+="${own:+,}$started"
+		# A subagent's end without a list of running tasks, or with none of
+		# its own on it, is final.
+		[[ $state == idle && ($has_snapshot != 1 || -z $own) ]] && state=''
+	fi
+	[[ -n $state ]] && out+="${out:+ }$actor:$state:$own:$now"
+	printf '%s' "$out"
+}
+
+# agent_subagent_tasks SUBAGENTS
+# Prints the background tasks the subagents launched, space-separated.
+agent_subagent_tasks() {
+	local e rest out=''
+	for e in ${1-}; do
+		rest=${e#*:}
+		rest=${rest#*:}
+		rest=${rest%:*}
+		[[ -n $rest ]] && out+="${out:+ }${rest//,/ }"
+	done
 	printf '%s' "$out"
 }
 
@@ -162,17 +205,18 @@ agent_subagents_summary() {
 # Stop hook that listed it, so one whose end was missed does not stay forever.
 AGENT_TASK_TTL=21600
 
-# agent_tasks TASKS KIND EVENT ACTOR NOW STARTED SNAPSHOT HAS_SNAPSHOT
+# agent_tasks TASKS KIND EVENT ACTOR NOW STARTED SNAPSHOT HAS_SNAPSHOT ENDED
 # The running background tasks of a Claude agent's main thread after an
 # event, as space-separated id:time entries, from TASKS before it.  STARTED is
-# the ID of a task the event launched; only a main-thread launch counts.  A
-# Stop hook lists the running tasks (HAS_SNAPSHOT 1, SNAPSHOT the IDs), and
-# that list replaces the old one and restarts each task's time (SPEC.md D11).
-# A new or ended session drops them all.  An interrupt does not: background
-# tasks keep running after Esc.  Background tasks never change the state.
+# the ID of a task the event launched; only a main-thread launch counts.
+# ENDED is the ID of a task whose end the event delivers.  A Stop hook lists
+# the running tasks (HAS_SNAPSHOT 1, SNAPSHOT the IDs), and that list replaces
+# the old one and restarts each task's time (SPEC.md D11).  A new or ended
+# session drops them all.  An interrupt does not: background tasks keep
+# running after Esc.  Background tasks never change the state.
 agent_tasks() {
 	local tasks=${1-} kind=${2-} event=${3-} actor=${4:-main} now=${5:-0} started=${6-}
-	local snapshot=${7-} has_snapshot=${8:-0} out='' e id
+	local snapshot=${7-} has_snapshot=${8:-0} ended=${9-} out='' e id
 	if [[ $kind != claude || $actor != main ]]; then
 		printf '%s' "$tasks"
 		return 0
@@ -189,6 +233,7 @@ agent_tasks() {
 	fi
 	for e in $tasks; do
 		((now - ${e##*:} < AGENT_TASK_TTL)) || continue
+		[[ -n $ended && ${e%:*} == "$ended" ]] && continue
 		[[ ${e%:*} == "$started" ]] && started=''
 		out+="${out:+ }$e"
 	done

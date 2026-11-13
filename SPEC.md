@@ -50,7 +50,7 @@ A collection of windows inside one tmux server.
 _Avoid_: session
 
 **Background task**:
-A command a Claude agent's main thread left running while it goes on: a `Bash` call with `run_in_background`, or a `Monitor`. It never changes the agent state. A subagent's background tasks are not counted.
+A command a Claude agent's main thread left running while it goes on: a `Bash` call with `run_in_background`, or a `Monitor`. It never changes the agent state. A subagent's background tasks are not counted; they keep that subagent listed as a waiting subagent.
 _Avoid_: background job, background process, shell
 
 **Agent state**:
@@ -708,7 +708,12 @@ The project SHALL provide contract tests that run the installed Claude Code and 
 
 ### Claude subagent tracking
 
-The reporter SHALL track a Claude agent's main-thread state from main-thread events only, and its live subagents, each with its own state, from the subagent's own events. A subagent SHALL be listed from its first event, including `SubagentStart`, until its `SubagentStop`. An interrupt or a new session MUST clear the list, and a subagent with no event for 30 minutes MUST be dropped.
+The reporter SHALL track a Claude agent's main-thread state from main-thread events only, and its live subagents, each with its own state, from the subagent's own events. A subagent SHALL be listed from its first event, including `SubagentStart`, until its `SubagentStop`. The reporter SHALL record the background tasks a subagent launches from its `PostToolUse` hooks. When the subagent's `SubagentStop` lists one of them as running in `background_tasks`, the subagent SHALL stay listed as `idle`, a waiting subagent, until a `Stop` or `SubagentStop` lists none of them; its next own event makes it active again. An interrupt or a new session MUST clear the list. A subagent with no event for 30 minutes MUST be dropped, and a waiting subagent that no hook has listed a task of for six hours MUST be dropped.
+
+#### Scenario: Fork waits on its own background command
+
+- **WHEN** a fork launches a background `Bash` command and ends its turn while the command runs
+- **THEN** the fork stays listed as `idle` until the command ends and the fork resumes and stops with no running task of its own
 
 #### Scenario: Interrupt
 
@@ -717,7 +722,7 @@ The reporter SHALL track a Claude agent's main-thread state from main-thread eve
 
 ### Claude background task tracking
 
-The reporter SHALL track the background tasks a Claude agent's main thread launches: a `Bash` call with `run_in_background` or a `Monitor` call, added from its `PostToolUse` hook, ignoring calls whose payload has a non-empty `agent_id`. A main-thread `Stop` hook that carries `background_tasks` SHALL replace the list with its `shell` and `monitor` tasks whose status is `running`; a `Stop` without that field MUST leave the list alone. A new session MUST clear the list, and an interrupt MUST NOT. A task that no `Stop` has listed for six hours since its launch MUST be dropped. Reporters handling events of the same pane MUST NOT lose each other's updates. Background tasks MUST NOT change the agent state, the session rollup or notifications.
+The reporter SHALL track the background tasks a Claude agent's main thread launches: a `Bash` call with `run_in_background` or a `Monitor` call, added from its `PostToolUse` hook, ignoring calls whose payload has a non-empty `agent_id`. A main-thread `UserPromptSubmit` hook whose prompt is a `<task-notification>` with status `completed`, `failed` or `killed` SHALL remove the task it names. A main-thread `Stop` hook that carries `background_tasks` SHALL replace the list with its `shell` and `monitor` tasks whose status is `running`, leaving out the tasks of listed subagents; a `Stop` without that field MUST leave the list alone. A new session MUST clear the list, and an interrupt MUST NOT. A task that no `Stop` has listed for six hours since its launch MUST be dropped. Reporters handling events of the same pane MUST NOT lose each other's updates. Background tasks MUST NOT change the agent state, the session rollup or notifications.
 
 #### Scenario: Task ends while the agent is idle
 
@@ -739,19 +744,24 @@ The reporter SHALL track the background tasks a Claude agent's main thread launc
 - **WHEN** a subagent runs `Bash` with `run_in_background`
 - **THEN** the main agent's task list does not change
 
-#### Scenario: Long response without hooks
+#### Scenario: Task ends during a turn
 
-- **WHEN** a task ends during a turn
-- **THEN** the count stays until that turn's `Stop`
+- **WHEN** a task ends while the agent is still working
+- **THEN** Claude Code delivers a task notification through `UserPromptSubmit` and the count drops at once
 
 ### Agent state after the last subagent
 
-When the last subagent ends while the agent is `working` and its main thread is `idle` or `done`, the agent SHALL take its main thread's state.
+When no listed subagent is `working` or `blocked` any more while the agent is `working` and its main thread is `idle` or `done`, the agent SHALL take its main thread's state. A waiting subagent does not keep the agent `working`.
 
 #### Scenario: Background subagent outlives its main thread
 
 - **WHEN** the main thread stops while a background subagent works, and the subagent then ends
 - **THEN** the agent is `done`, not `working`
+
+#### Scenario: Subagent waits on its own background task
+
+- **WHEN** the main thread has stopped and a subagent stops while its background command runs
+- **THEN** the agent is `done`
 
 ## 4. Sidebar
 
@@ -1277,6 +1287,11 @@ While a Claude Code agent has live subagents, its row SHALL show its main thread
 - **WHEN** one subagent works and another waits for a permission
 - **THEN** the subagent icon is the blocked icon and the count is 2
 
+#### Scenario: Main thread done, subagent waiting on a background task
+
+- **WHEN** a Claude agent's main thread has finished and its only subagent waits on its own background command
+- **THEN** its row starts with `✓ ○1`
+
 ### Background task indicator
 
 While a Claude Code agent has background tasks, its row SHALL show, after its state icon and any subagent indicator, a blue `·` followed by the number of tasks. The first line of the name MUST give up the columns the indicator takes. Without background tasks, the row SHALL show no task indicator.
@@ -1745,20 +1760,21 @@ Clicking a desktop notification, or pressing the next agent key, should show the
 
 ### D11. Background tasks come from the Stop hook
 
-The sidebar shows how many background tasks a Claude agent's main thread left running. A launch is visible: the `PostToolUse` payload carries `tool_input.run_in_background`, `agent_id`, and the task's `backgroundTaskId` in `tool_response`. No hook fires when a task ends, but every main-thread `Stop` payload carries `background_tasks`, each with its `id`, `type` (`shell`, `monitor`, `subagent`) and `status`. When a task ends while the agent is idle, Claude Code starts a turn to deliver its result, so a `Stop` follows within seconds. The reporter adds a task at launch, so it shows at once, and replaces the whole list from each `Stop`, which also corrects anything a lost or late update got wrong.
+The sidebar shows how many background tasks a Claude agent's main thread left running. A launch is visible: the `PostToolUse` payload carries `tool_input.run_in_background`, `agent_id`, and the task's `backgroundTaskId` in `tool_response`. Claude Code delivers each task's end to the main thread as a `UserPromptSubmit` hook whose `prompt` is a `<task-notification>` with the `<task-id>` and a `<status>`, whether the agent is idle or still working. Every `Stop` and `SubagentStop` payload carries `background_tasks` for the whole session, each with its `id`, `type` (`shell`, `monitor`, `subagent`) and `status`, but no owner. The reporter adds a task at launch, so it shows at once, removes it on its notification, and replaces the whole list from each main-thread `Stop`, which also corrects anything a lost or late update got wrong.
 
 **Considered options**
 
-- **Read the task-notification Claude Code writes to the session transcript.** Built first, then rejected: the transcript format is internal, any line quoting a notification ended a task, and each event read the file.
-- **A polling watcher per agent, as in D6.** Rejected: it only shortens the lag inside a turn, at the cost of a process per agent for as long as a task runs.
+- **Read the task-notification Claude Code writes to the session transcript.** Built first, then rejected: the transcript format is internal, any line quoting a notification ended a task, and each event read the file. The hook's own `prompt` carries the same notification without reading any file.
+- **A polling watcher per agent, as in D6.** Rejected: the notification already ends a task inside a turn, without a process per agent.
 
 **Consequences**
 
-- The count can lag inside a turn: a task that ends then leaves the list at that turn's `Stop`.
+- Only notifications with status `completed`, `failed` or `killed` end a task, so one that reports progress does not.
+- A `Monitor` is listed by its tool-use ID until the next `Stop`, so its notification cannot end it before then.
 - `Monitor`'s `PostToolUse` response has no `backgroundTaskId`, so it is listed by its tool-use ID until the next `Stop` gives its real ID.
 - Two reporters for the same pane take turns through a lock directory, because parallel tool calls run their hooks at once and `flock` is missing on macOS. A lock held over about two seconds is taken over.
 - A task that no `Stop` lists for six hours is dropped, so a missed end cannot keep a count forever.
-- The adapter sends `--task` and `--tasks` as optional report options. Older reporters skip them, so the report protocol stays at version 1.
+- The adapter sends `--task`, `--tasks` and `--task-done` as optional report options. Older reporters skip them, so the report protocol stays at version 1.
 
 ### D12. An agent's open desktop notification is replaced by ID
 
@@ -1858,3 +1874,19 @@ The `≡ options` and `? keys` entries share the sidebar's first row, and their 
 **Consequences**
 
 - Opening a panel pushes the lists down.
+
+### D18. A subagent waiting on its background tasks stays listed
+
+A subagent, often a fork, can launch a background command and end its turn while it runs. Claude Code fires `SubagentStop` then, keeps the subagent in its own agent list, and wakes it with a new `SubagentStart` when the command ends. The reporter records the tasks each subagent launches, so it can tell from the `background_tasks` of that `SubagentStop`, and of any later `Stop`, whether the subagent still waits. While it does, the subagent is listed as `idle`: it is not working, and it does not keep the agent `working`.
+
+**Considered options**
+
+- **Count a subagent's tasks in the background task indicator.** Rejected: the row would show a task with no subagent, which does not say that a subagent waits.
+- **Drop the subagent at `SubagentStop`, as before.** Rejected: the sidebar then shows fewer subagents than Claude Code does.
+- **Read the waiting state from the task notification's summary.** Rejected: the summary is prose meant for the model.
+
+**Consequences**
+
+- A subagent's tasks are left out of the main thread's count, because the `Stop` lists have no owner field.
+- A subagent whose task ends without a later `Stop` or `SubagentStop` stays listed until its six-hour expiry.
+- Subagent entries carry their task IDs: `id:state:tasks:time`.

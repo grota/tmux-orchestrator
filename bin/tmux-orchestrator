@@ -686,7 +686,7 @@ with_pane_lock() {
 
 report_event() {
 	local pane=$1 kind=$2 event=$3 detail=$4 sid=$5 name=$6 cwd=$7 refresh=$8 actor=${9-} attached=${10-}
-	local task=${11-} snapshot=${12-} has_snapshot=${13:-0}
+	local task=${11-} snapshot=${12-} has_snapshot=${13:-0} ended=${14-}
 	local i verb next notify raw waiters='' waiting=0 main='' subs='' main_verb main_next count rollup
 	local tasks=''
 
@@ -725,8 +725,18 @@ report_event() {
 			read -r main_verb main_next _ <<<"$(agent_transition "${MAIN:-${i:+${STATE[i]-}}}" "$kind" "$event" "$detail" 0)"
 			[[ $main_verb == set ]] && main=$main_next
 		fi
-		subs=$(agent_subagents "$SUBS" "$kind" "$event" "$detail" "$actor" "$(date +%s)")
-		tasks=$(agent_tasks "$TASKS" "$kind" "$event" "$actor" "$(date +%s)" "$task" "$snapshot" "$has_snapshot")
+		subs=$(agent_subagents "$SUBS" "$kind" "$event" "$detail" "$actor" "$(date +%s)" "$task" "$snapshot" "$has_snapshot")
+		# A Stop hook lists the whole session's tasks; the subagents' own are
+		# theirs, not the main thread's.
+		if [[ $has_snapshot == 1 ]]; then
+			local owned own_task kept=''
+			owned=" $(agent_subagent_tasks "$subs") "
+			for own_task in $snapshot; do
+				[[ $owned == *" $own_task "* ]] || kept+="${kept:+ }$own_task"
+			done
+			snapshot=$kept
+		fi
+		tasks=$(agent_tasks "$TASKS" "$kind" "$event" "$actor" "$(date +%s)" "$task" "$snapshot" "$has_snapshot" "$ended")
 	fi
 
 	if [[ $verb == forget ]]; then
@@ -750,10 +760,12 @@ report_event() {
 	fi
 
 	[[ $verb == set ]] && set_state "$i" "$next"
-	# Subagent activity keeps the agent working; once the last subagent ends,
-	# the agent is what its main thread is.
-	if [[ $kind == claude && -n $SUBS && -z $subs && ${STATE[i]} == working && ($main == idle || $main == done) ]]; then
-		set_state "$i" "$main"
+	# Subagent activity keeps the agent working; once no subagent works or
+	# waits for the user, the agent is what its main thread is.  A subagent
+	# waiting on its background tasks does not keep it working.
+	if [[ $kind == claude && -n $SUBS && ${STATE[i]} == working && ($main == idle || $main == done) ]]; then
+		read -r _ rollup <<<"$(agent_subagents_summary "$subs")"
+		[[ $rollup == working || $rollup == blocked ]] || set_state "$i" "$main"
 	fi
 	[[ $kind == claude && -z $main ]] && main=${STATE[i]}
 	KIND[i]=$kind
@@ -1090,7 +1102,7 @@ attach_session() {
 # session and forget it in panes that no longer do.  EVENT_SID is the session
 # ID the event itself carries, empty for a subagent.
 report_background() {
-	local kind=$1 event=$2 detail=$3 sid=$4 event_sid=$5 name=$6 cwd=$7 refresh=$8 actor=${9-} task=${10-} snapshot=${11-} has_snapshot=${12:-0}
+	local kind=$1 event=$2 detail=$3 sid=$4 event_sid=$5 name=$6 cwd=$7 refresh=$8 actor=${9-} task=${10-} snapshot=${11-} has_snapshot=${12:-0} ended=${13-}
 	local pane arg shown=' '
 	[[ -n $sid ]] || return 0
 	while read -r pane arg; do
@@ -1100,7 +1112,7 @@ report_background() {
 		[[ $arg == "$sid" && $shown != *" $pane "* ]] && remove_pane "$pane"
 	done < <(tmux_do list-panes -a -F '#{pane_id} #{@agent_attached}' || true)
 	for pane in $shown; do
-		with_pane_lock "$pane" report_event "$pane" "$kind" "$event" "$detail" "$event_sid" "$name" "$cwd" "$refresh" "$actor" "$sid" "$task" "$snapshot" "$has_snapshot"
+		with_pane_lock "$pane" report_event "$pane" "$kind" "$event" "$detail" "$event_sid" "$name" "$cwd" "$refresh" "$actor" "$sid" "$task" "$snapshot" "$has_snapshot" "$ended"
 	done
 }
 
@@ -1720,7 +1732,8 @@ report options:
   --refresh                refresh the name from Claude in the background
   --agent ID               subagent actor id (default: main)
   --task ID                background task the event launched
-  --tasks "ID..."          the main thread's running background tasks (Stop)
+  --tasks "ID..."          the session's running background tasks (Stop, SubagentStop)
+  --task-done ID           background task whose end the event delivers
   --background             event without a pane: apply it to every viewer
   --background-session ID  background session id (default: --session-id)
 
@@ -1767,7 +1780,7 @@ main() {
 	case "$command" in
 	report)
 		local pane='' kind='' event='' detail='' sid='' name='' cwd='' refresh=0 agent='' background=0 bg_sid=''
-		local task='' snapshot='' has_snapshot=0
+		local task='' snapshot='' has_snapshot=0 ended=''
 		while (($#)); do
 			case "$1" in
 			--pane) pane=$2; shift 2 ;;
@@ -1782,17 +1795,18 @@ main() {
 			--refresh) refresh=1; shift ;;
 			--task) task=$2; shift 2 ;;
 			--tasks) snapshot=$2 has_snapshot=1; shift 2 ;;
+			--task-done) ended=$2; shift 2 ;;
 			--agent) agent=$2; shift 2 ;;
 			*) shift ;;
 			esac
 		done
 		if ((background)); then
-			report_background "$kind" "$event" "$detail" "${bg_sid:-$sid}" "$sid" "$name" "$cwd" "$refresh" "$agent" "$task" "$snapshot" "$has_snapshot"
+			report_background "$kind" "$event" "$detail" "${bg_sid:-$sid}" "$sid" "$name" "$cwd" "$refresh" "$agent" "$task" "$snapshot" "$has_snapshot" "$ended"
 			return 0
 		fi
 		pane=${pane:-${TMUX_PANE:-}}
 		[[ -n $pane ]] || return 0
-		with_pane_lock "$pane" report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$agent" '' "$task" "$snapshot" "$has_snapshot"
+		with_pane_lock "$pane" report_event "$pane" "$kind" "$event" "$detail" "$sid" "$name" "$cwd" "$refresh" "$agent" '' "$task" "$snapshot" "$has_snapshot" "$ended"
 		;;
 	tabs)
 		local pane='' active='' cwd='' tabs=()

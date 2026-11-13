@@ -121,6 +121,29 @@ assert_eq "$(tmux -L "$S" show-options -pv -t "$P" @agent_1_waiters 2>/dev/null 
 "$HOOK" <"$FIX/subagent-other-tool.json"
 assert_eq "$(state)" working
 
+# A task notification ends that task mid-turn.
+subs() { tmux -L "$S" show-options -pv -t "$P" @agent_1_subagents 2>/dev/null || true; }
+"$HOOK" <"$FIX/post-tool-background.json"
+assert_eq "$(tasks_n)" 1
+"$HOOK" <"$FIX/task-notification.json"
+assert_eq "$(tasks_n)" ''
+assert_eq "$(state)" working
+
+# A fork that stops while its own background task runs stays listed, idle,
+# and its task is not counted as the main thread's.  Its next stop without a
+# running task of its own removes it.
+"$HOOK" <"$FIX/fork-post-tool-background.json"
+assert_eq "$(tasks_n)" ''
+"$HOOK" <"$FIX/fork-stop-waiting.json"
+[[ " $(subs) " == *' agent-1:idle:forkbg1:'* ]] || fail "waiting fork: $(subs)"
+"$HOOK" <"$FIX/stop-fork-shell.json"
+[[ " $(subs) " == *' agent-1:idle:forkbg1:'* ]] || fail "fork after Stop: $(subs)"
+[[ $(tasks) == bgbash2:* ]] || fail "main tasks: $(tasks)"
+"$HOOK" <"$FIX/fork-stop-finished.json"
+[[ " $(subs) " != *' agent-1:'* ]] || fail "finished fork: $(subs)"
+jq -c '.background_tasks = []' "$FIX/stop-background-tasks.json" | "$HOOK"
+"$HOOK" <"$FIX/prompt-title.json"
+
 # A prompt starts interrupt detection on the session's status.
 REG_DIR=$(mktemp -d)
 mkdir -p "$REG_DIR/sessions"

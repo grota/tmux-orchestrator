@@ -1,0 +1,1 @@
+{"hook_event_name":"SubagentStop","session_id":"sid-start","cwd":"/tmp/project","agent_id":"agent-1","agent_type":"fork","stop_hook_active":false,"background_tasks":[{"id":"agent-1","type":"subagent","status":"running","description":"Fork test","agent_type":"fork"}],"session_crons":[],"prompt":""}

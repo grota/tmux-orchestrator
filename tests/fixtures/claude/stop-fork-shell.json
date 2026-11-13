@@ -1,0 +1,1 @@
+{"hook_event_name":"Stop","session_id":"sid-start","cwd":"/tmp/project","stop_hook_active":false,"background_tasks":[{"id":"forkbg1","type":"shell","status":"running","description":"Background sleep","command":"sleep 20; echo forkbg"},{"id":"bgbash2","type":"shell","status":"running","description":"sleep 60","command":"sleep 60"}],"session_crons":[],"prompt":""}

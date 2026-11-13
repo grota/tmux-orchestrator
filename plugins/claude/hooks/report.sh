@@ -29,20 +29,24 @@ done < <(jq -j '[
 	(.tool_response.backgroundTaskId? // .tool_response.taskId? // .tool_use_id // ""),
 	(.tool_input.run_in_background? // false),
 	has("background_tasks"),
-	([.background_tasks[]? | select(.status == "running" and (.type == "shell" or .type == "monitor")) | .id] | join(" "))
+	([.background_tasks[]? | select(.status == "running" and (.type == "shell" or .type == "monitor")) | .id] | join(" ")),
+	(if .hook_event_name == "UserPromptSubmit" and (.prompt | type) == "string" and (.prompt | startswith("<task-notification>"))
+	 then (.prompt | [(capture("<task-id>(?<id>[^<]+)</task-id>").id // ""), (capture("<status>(?<s>[^<]+)</status>").s // "")] | join(" "))
+	 else "" end)
 ] | map(tostring + "\u0000") | add' 2>/dev/null)
-((${#fields[@]} == 11)) || exit 0
+((${#fields[@]} == 12)) || exit 0
 event=${fields[0]} sid=${fields[1]} cwd=${fields[2]} title=${fields[3]}
 agent_id=${fields[4]} tool=${fields[5]} error=${fields[6]}
 task_id=${fields[7]} background=${fields[8]}
 has_tasks=${fields[9]} running=${fields[10]}
+read -r notified notified_status <<<"${fields[11]}"
 [[ -n $event ]] || exit 0
 
-# A main-thread background task: Bash with run_in_background, or a Monitor,
-# which always runs in the background.  No hook reports its end; the Stop hook
-# lists the tasks still running (SPEC.md D11).
+# A background task: Bash with run_in_background, or a Monitor, which always
+# runs in the background.  Its end arrives as a task notification prompt, and
+# the Stop hooks list the tasks still running (SPEC.md D11).
 task=''
-if [[ $event == PostToolUse && -z $agent_id && -n $task_id ]]; then
+if [[ $event == PostToolUse && -n $task_id ]]; then
 	case "$tool:$background" in
 	Bash:true | Monitor:*) task=$task_id ;;
 	esac
@@ -82,7 +86,12 @@ fi
 [[ -n $agent_id ]] && args+=(--agent "$agent_id")
 [[ -n $cwd ]] && args+=(--cwd "$cwd")
 [[ -n $task ]] && args+=(--task "$task")
-[[ $event == Stop && -z $agent_id && $has_tasks == true ]] && args+=(--tasks "$running")
+[[ ($event == Stop || $event == SubagentStop) && $has_tasks == true ]] && args+=(--tasks "$running")
+if [[ $event == UserPromptSubmit && -z $agent_id && -n ${notified:-} ]]; then
+	case "${notified_status:-}" in
+	completed | failed | killed) args+=(--task-done "$notified") ;;
+	esac
+fi
 case "$event" in
 SessionStart | UserPromptSubmit)
 	# A supplied title is authoritative; only look one up when it is absent.
