@@ -85,6 +85,10 @@ _Avoid_: panel, sidebar pane, area
 A part of the sidebar, opened and closed by a click, that lists the configurable key bindings acting on the orchestrator.
 _Avoid_: help, cheatsheet, legend
 
+**Options panel**:
+A part of the sidebar, opened and closed by a click, that shows the live options with their current values and changes one with a click until tmux restarts.
+_Avoid_: settings, preferences, config panel
+
 ## 2. Agent state
 
 Defines how lifecycle events become a normalized per-agent state, how agent identity is recorded, and how per-session summaries are kept in tmux options so every client sees the same view.
@@ -1076,6 +1080,48 @@ The sidebar SHALL end with a right-aligned, clickable `? keys` row that opens an
 - **WHEN** the toggle key was not bound because of a conflicting user binding
 - **THEN** the panel does not list a toggle key
 
+### Options panel
+
+The sidebar SHALL show a clickable `≡ options` entry left of `? keys` that opens and closes the options panel for all clients. Opening one of the two panels MUST close the other. The panel SHALL list these options with their current value, the default when unset:
+
+| Line | Option | Values in click order |
+|---|---|---|
+| `time` | `@tmux-orchestrator-time` | `on`, `off` |
+| `time on view` | `@tmux-orchestrator-time-on-view` | `keep`, `reset` |
+| `names` | `@tmux-orchestrator-name-max-chars` | `wrap`, `nowrap` |
+| `focus style` | `@tmux-orchestrator-focus-style` | `underlined`, `bold`, `none` |
+| `desktop` | `@tmux-orchestrator-notify-desktop` | `on`, `off` |
+| `terminal` | `@tmux-orchestrator-notify-terminal` | `off`, `on` |
+| `pause` | `@tmux-orchestrator-notify-paused` | `off`, `on` |
+| `window names` | `@tmux-orchestrator-window-name` | `on`, `force`, `off` |
+
+Clicking a line SHALL set the option's next value in the global tmux options, and the change SHALL apply at once. A value outside the list, such as a number of characters for `names`, MUST show as it is and go to the first value on click. The panel MUST NOT write any file: a reload of the tmux configuration or a tmux restart brings back the configured values.
+
+#### Scenario: Open the options panel
+
+- **WHEN** the user clicks `≡ options` while the keys panel is open
+- **THEN** the keys panel closes and every client's sidebar shows the options panel
+
+#### Scenario: Toggle a boolean
+
+- **WHEN** `@tmux-orchestrator-time` is unset and the user clicks the `time` line
+- **THEN** the option becomes `off`, the line shows `off` and the state time disappears
+
+#### Scenario: Cycle a list
+
+- **WHEN** the window names line shows `force` and the user clicks it
+- **THEN** the option becomes `off` and window names show the user's format again, without reloading the plugin
+
+#### Scenario: Value outside the list
+
+- **WHEN** `@tmux-orchestrator-name-max-chars` is `12` and the user clicks the `names` line
+- **THEN** the line showed `12` and the option becomes `wrap`
+
+#### Scenario: Restart
+
+- **WHEN** the user turned `desktop` off from the panel and tmux restarts with a configuration that does not set it
+- **THEN** desktop notifications are on again
+
 ### Toggle key does not overwrite user bindings
 
 The plugin SHALL bind the toggle key only when that key has no binding in the prefix table or is already bound to the plugin's toggle. Otherwise it MUST leave the existing binding in place and show a message naming the key once per plugin load. On load, the plugin MUST remove its own toggle binding from any other prefix key.
@@ -1129,7 +1175,7 @@ A rename the agent does not confirm MUST show the reason to the client and MUST 
 
 ### Window names follow the agent
 
-The plugin SHALL replace every `#{pane_current_command}` in the global `automatic-rename-format` with a format that shows the agent name of the pane, cut to 20 characters, and the pane's command when the pane has no agent. For an OpenCode pane the agent is the one in its active tab. The rest of the format MUST be kept, and a format without `#{pane_current_command}` MUST stay unchanged. Reloading the plugin MUST NOT apply the replacement twice. With `@tmux-orchestrator-window-name` set to `force`, the plugin SHALL instead show the agent name in place of the whole format, so a format without `#{pane_current_command}` names agent windows too. With it set to `off`, the plugin SHALL give the user's format back. A format set after the plugin loaded is the user's format. The name MUST be escaped like the sidebar's (Name safety). Window-level `automatic-rename-format` values and windows with `automatic-rename` off are not changed.
+The plugin SHALL replace every `#{pane_current_command}` in the global `automatic-rename-format` with a format that shows the agent name of the pane, cut to 20 characters, and the pane's command when the pane has no agent. For an OpenCode pane the agent is the one in its active tab. The rest of the format MUST be kept, and a format without `#{pane_current_command}` MUST stay unchanged. Reloading the plugin MUST NOT apply the replacement twice. With `@tmux-orchestrator-window-name` set to `force`, the plugin SHALL instead show the agent name in place of the whole format, so a format without `#{pane_current_command}` names agent windows too. With it set to `off`, the plugin SHALL give the user's format back. A format set after the plugin loaded is the user's format. The name MUST be escaped like the sidebar's (Name safety). A change of `@tmux-orchestrator-window-name` from the options panel SHALL apply at once. Window-level `automatic-rename-format` values and windows with `automatic-rename` off are not changed.
 
 #### Scenario: Default format
 
@@ -1728,3 +1774,19 @@ Windows should be named after their agent without the user renaming them. The pl
 - tmux re-evaluates the name only when the pane changes, so a rename shows once the agent next draws.
 - The name is stored with `#` doubled, because tmux reads `#[` in a window name as a style in the status line. `#{window_name}` printed outside a status line shows `##`.
 - A window renamed by hand has `automatic-rename` off and keeps its name.
+
+### D15. The options panel changes tmux options until restart
+
+The options panel lets the user change live options with a click. A click sets the global tmux option the user would set in `tmux.conf`; nothing else stores it. The configuration stays the only record of chosen values, and a reload or restart brings them back.
+
+**Considered options**
+
+- **Write the change into `tmux.conf`.** Rejected: the plugin would have to find and edit a file the user owns, in any layout, and a stray edit breaks the user's configuration.
+- **A separate state file the plugin reads on load.** Rejected: it breaks the rule that no state lives outside the tmux server (Pane state storage), and a value the user cannot see in `tmux.conf` overriding the one there would surprise.
+- **Prompt for a value with `command-prompt`.** Rejected for these options: each takes a few fixed values, and a click per value is faster than typing one. Text and number options stay in `tmux.conf`.
+
+**Consequences**
+
+- Options read only at plugin load (side, width, keys, focus events, OpenCode auto-install) are not in the panel. `window-name` was made live for it: the reporter's `window-name` command applies it, and the plugin load calls the same command.
+- Each line is a `range=user|o:<option>` range, so option codes stay within tmux's 15-byte limit for the range argument.
+- Values are read in the sidebar format itself, so a click shows on the next redraw without the reporter writing the panel.

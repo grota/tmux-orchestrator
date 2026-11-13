@@ -1196,10 +1196,20 @@ s.close()
 select_agent() {
 	local row=${1-} pane slot sid
 	[[ -n $row ]] || return 0
-	if [[ $row == keys ]]; then
+	case "$row" in
+	keys)
 		toggle_keys
 		return 0
-	fi
+		;;
+	opts)
+		toggle_options
+		return 0
+		;;
+	o:*)
+		cycle_option "${row#o:}"
+		return 0
+		;;
+	esac
 	pane=${row%%:*}
 	slot=''
 	[[ $row == *:* ]] && slot=${row#*:}
@@ -1382,9 +1392,80 @@ toggle_keys() {
 		list=$(keys_list)
 		[[ -n $list ]] || list='no key bindings'
 		tmux_ok set-option -g @tmux-orchestrator-keys-list "#[fg=colour8]${list//$'\n'/#[nl]}#[default]#[nl]"
-		tmux_ok set-option -g @tmux-orchestrator-keys 1
+		tmux_ok set-option -g @tmux-orchestrator-keys 1 \; set-option -gu @tmux-orchestrator-options
 	fi
 	refresh_clients
+}
+
+# Open or close the options panel for every client; it closes the keys panel.
+toggle_options() {
+	if [[ $(get_global @tmux-orchestrator-options) == 1 ]]; then
+		tmux_ok set-option -gu @tmux-orchestrator-options
+	else
+		tmux_ok set-option -g @tmux-orchestrator-options 1 \; set-option -gu @tmux-orchestrator-keys
+	fi
+	refresh_clients
+}
+
+# Set the options panel line CODE's option to its next value (SPEC.md D15).
+# The first value is the default; a value outside the list goes to it.
+cycle_option() {
+	local code=$1 option values current next='' value found=0
+	case "$code" in
+	time) option=time values='on off' ;;
+	view) option=time-on-view values='keep reset' ;;
+	names) option=name-max-chars values='wrap nowrap' ;;
+	focus) option=focus-style values='underlined bold none' ;;
+	desktop) option=notify-desktop values='on off' ;;
+	terminal) option=notify-terminal values='off on' ;;
+	pause) option=notify-paused values='off on' ;;
+	window) option=window-name values='on force off' ;;
+	*) return 0 ;;
+	esac
+	option=@tmux-orchestrator-$option
+	current=$(get_global "$option")
+	# The pause is stored as 1 or unset, like notify pause and resume.
+	[[ $code == pause ]] && { [[ $current == 1 ]] && current=on || current=off; }
+	[[ -n $current ]] || current=${values%% *}
+	for value in $values; do
+		((found)) && { next=$value; break; }
+		[[ $value == "$current" ]] && found=1
+	done
+	[[ -n $next ]] || next=${values%% *}
+	if [[ $code == pause ]]; then
+		if [[ $next == on ]]; then tmux_ok set-option -g "$option" 1; else tmux_ok set-option -gu "$option"; fi
+	else
+		tmux_ok set-option -g "$option" "$next"
+	fi
+	[[ $code == window ]] && apply_window_name
+	refresh_clients
+}
+
+# Window names show the agent name of the active pane (SPEC.md D14).  `on`
+# replaces every #{pane_current_command} in the global automatic-rename-format,
+# `force` puts the agent name in front of the whole format, `off` leaves it.
+# The user's format and the one set from it are recorded: while the format is
+# still the one set, the change starts again from the user's, so applying it
+# again never applies it twice.  A format set by anyone else is the user's.
+apply_window_name() {
+	local agent_name='#{=20:@agent_active_name}' mode current user new
+	mode=$(get_global @tmux-orchestrator-window-name)
+	current=$(tmux_do show-options -gwv automatic-rename-format || true)
+	user=$current
+	[[ $current == "$(get_global @tmux-orchestrator-window-name-set)" ]] && user=$(get_global @tmux-orchestrator-window-name-user)
+	case "$mode" in
+	off) new=$user ;;
+	force) new="#{?@agent_active_name,$agent_name,$user}" ;;
+	*) new=${user//'#{pane_current_command}'/"#{?@agent_active_name,$agent_name,#{pane_current_command}}"} ;;
+	esac
+	if [[ $new == "$user" ]]; then
+		tmux_ok set-option -gu @tmux-orchestrator-window-name-user \; set-option -gu @tmux-orchestrator-window-name-set
+	else
+		# Separate calls: a format ending in ";" would end a chained command.
+		tmux_ok set-option -g @tmux-orchestrator-window-name-user "$user"
+		tmux_ok set-option -g @tmux-orchestrator-window-name-set "$new"
+	fi
+	[[ $new == "$current" ]] || tmux_ok set-option -gw automatic-rename-format "$new"
 }
 
 gc() {
@@ -1551,6 +1632,7 @@ usage: tmux-orchestrator <command> [options]
   select ROW    act on a sidebar row
   rename ROW NAME  rename the agent on a sidebar row (%P:<slot>) in the agent
   rename-prompt ROW CLIENT  ask CLIENT for a new name for that agent
+  window-name   apply @tmux-orchestrator-window-name to automatic-rename-format
   reconcile     rebuild session summaries
   gc            drop agents of dead panes and reconcile
   toggle        enable or disable the sidebar
@@ -1722,6 +1804,7 @@ main() {
 		;;
 	focus) focus_agents ;;
 	select) select_agent "${1-}" ;;
+	window-name) apply_window_name ;;
 	rename-prompt) rename_prompt "${1-}" "${2-}" ;;
 	rename)
 		if (($#)); then

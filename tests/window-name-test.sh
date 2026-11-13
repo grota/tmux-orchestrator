@@ -108,4 +108,15 @@ tmux -L "$S" set-option -gw automatic-rename-format "[$TOKEN]"
 load
 assert_eq "$(format)" "[$WRAP]"
 
+# The options panel changes the mode live, without a reload.
+tmux -L "$S" set-option -gw automatic-rename-format "$DEFAULT"
+"$BIN" window-name
+"$BIN" select o:window
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-window-name)" force
+assert_eq "$(format)" "#{?@agent_active_name,#{=20:@agent_active_name},$DEFAULT}"
+"$BIN" select o:window
+assert_eq "$(format)" "$DEFAULT"
+"$BIN" select o:window
+assert_eq "$(format)" "${DEFAULT//"$TOKEN"/"$WRAP"}"
+
 printf 'window-name-test: ok\n'

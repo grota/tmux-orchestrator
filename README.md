@@ -77,6 +77,9 @@ border to make room, double-click the border to snap it back.
   row renames the agent in Claude Code or OpenCode itself.
 - **Window names** follow the agent in the window's active pane, cut to 20
   characters, and go back to the command when the agent exits.
+- **`≡ options`** opens a panel with the live on/off and choice options. Click
+  a line to switch it. The change lasts until tmux restarts, and reloading
+  `tmux.conf` brings back the values it sets, so put lasting choices there.
 - **`? keys`**, the last row, lists every key binding the plugin knows about.
 
 | State   | Icon | Colour | Meaning                                    |
@@ -118,7 +121,8 @@ Need some quiet? Pause every notification with one command (see
 ## Options
 
 Set options above the line that runs TPM (`run '~/.tmux/plugins/tpm/tpm'`). The
-ones marked _live_ can also be changed later and apply at once.
+ones marked _live_ can also be changed later and apply at once, most of them
+from the sidebar's `≡ options` panel.
 
 | Option                                     | Default      | Description                                                                                    |
 | ------------------------------------------ | ------------ | ---------------------------------------------------------------------------------------------- |
@@ -129,7 +133,7 @@ ones marked _live_ can also be changed later and apply at once.
 | `@tmux-orchestrator-focus-style`           | `underlined` | _Live._ How the agent you are viewing is marked: `underlined`, `bold` or `none`.               |
 | `@tmux-orchestrator-time`                  | `on`         | _Live._ `off` hides the state time.                                                            |
 | `@tmux-orchestrator-time-on-view`          | `keep`       | _Live._ `reset` restarts a `done` agent's time when you view it.                               |
-| `@tmux-orchestrator-window-name`           | `on`         | `off` keeps agent names out of windows; `force` names them when your format lacks the command. |
+| `@tmux-orchestrator-window-name`           | `on`         | _Live._ `off` leaves window names alone; `force` works without the command in your format.     |
 | `@tmux-orchestrator-attention-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
 | `@tmux-orchestrator-attention-table`       | `prefix`     | Key table of the attention key; `root` binds it without the prefix.                            |
 | `@tmux-orchestrator-notify-desktop`        | `on`         | _Live._ Desktop notifications (`notify-send` or `osascript`).                                  |

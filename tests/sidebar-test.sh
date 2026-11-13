@@ -331,7 +331,7 @@ tmux -L "$S" kill-window -t alpha:subs
 
 # The keys panel is closed by default and toggled by its footer row.
 FMT=$(tmux -L "$S" show-options -gv side-status-format)
-[[ $FMT == *'#[align=right]#[range=user|keys]? keys'* ]] || fail 'missing keys footer'
+[[ $FMT == *'#[align=right]#[range=user|opts]≡ options#[norange] #[range=user|keys]? keys'* ]] || fail 'missing keys footer'
 tmux -L "$S" display -p "$FMT" | grep -Fq 'prefix O  toggle' && fail 'keys panel open by default'
 tmux -L "$S" bind-key N run-shell -b '#{@tmux-orchestrator-reporter} notify pause'
 tmux -L "$S" bind-key M run-shell "'$BIN' reconcile #{pane_id}"
@@ -349,6 +349,41 @@ tmux -L "$S" bind-key K run-shell -b '#{@tmux-orchestrator-reporter} gc'
 "$BIN" select keys
 tmux -L "$S" display -p "$FMT" | grep -Fq 'prefix K  gc' || fail 'new binding not listed'
 "$BIN" select keys
+# The options panel shows each live option's value and cycles it on click;
+# opening it closes the keys panel.
+"$BIN" select keys
+"$BIN" select opts
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-keys)" ''
+# The panel's text without its style markup.
+options_text() { tmux -L "$S" display -p "$FMT" | sed 's/#\[[^]]*\]//g'; }
+PANEL=$(options_text)
+for line in 'time         on' 'focus style  underlined' 'terminal     off' 'pause        off' 'window names on'; do
+	[[ $PANEL == *"$line"* ]] || fail "options panel lacks [$line]"
+done
+"$BIN" select o:time
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" off
+options_text | grep -Fq 'time         off' || fail 'time line not updated'
+"$BIN" select o:time
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" on
+"$BIN" select o:focus
+"$BIN" select o:focus
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-focus-style)" none
+"$BIN" select o:focus
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-focus-style)" underlined
+tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars 12
+options_text | grep -Fq 'names        12' || fail 'names line does not show 12'
+"$BIN" select o:names
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-name-max-chars)" wrap
+"$BIN" select o:pause
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-notify-paused)" 1
+"$BIN" select o:pause
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-notify-paused)" ''
+"$BIN" select keys
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-options)" ''
+"$BIN" select keys
+tmux -L "$S" set-option -gu @tmux-orchestrator-time
+tmux -L "$S" set-option -gu @tmux-orchestrator-focus-style
+tmux -L "$S" set-option -gu @tmux-orchestrator-name-max-chars
 tmux -L "$S" unbind-key N
 tmux -L "$S" unbind-key M
 tmux -L "$S" unbind-key X

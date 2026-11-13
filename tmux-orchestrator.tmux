@@ -71,30 +71,9 @@ elif [[ $("${TMUX_CMD[@]}" show-options -gv focus-events 2>/dev/null) != on ]]; 
 	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: focus-events is off, so agents shown in a background terminal window do not notify" >/dev/null 2>&1 || true
 fi
 
-# Window names show the agent name of the active pane (SPEC.md D14).  `on`
-# replaces every #{pane_current_command} in the global automatic-rename-format,
-# `force` puts the agent name in front of the whole format, `off` leaves it.
-# The user's format and the one set from it are recorded: while the format is
-# still the one set, the change starts again from the user's, so a reload
-# never applies it twice.  A format set by anyone else is the user's.
-AGENT_NAME='#{=20:@agent_active_name}'
-window_name=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name 2>/dev/null || true)
-rename_format=$("${TMUX_CMD[@]}" show-options -gwv automatic-rename-format 2>/dev/null || true)
-user_format=$rename_format
-if [[ $rename_format == "$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name-set 2>/dev/null || true)" ]]; then
-	user_format=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name-user 2>/dev/null || true)
-fi
-case $window_name in
-off) new_format=$user_format ;;
-force) new_format="#{?@agent_active_name,$AGENT_NAME,$user_format}" ;;
-*) new_format=${user_format//'#{pane_current_command}'/"#{?@agent_active_name,$AGENT_NAME,#{pane_current_command}}"} ;;
-esac
-if [[ $new_format == "$user_format" ]]; then
-	"${TMUX_CMD[@]}" set-option -gu @tmux-orchestrator-window-name-user \; set-option -gu @tmux-orchestrator-window-name-set
-else
-	"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-window-name-user "$user_format" \; set-option -g @tmux-orchestrator-window-name-set "$new_format"
-fi
-[[ $new_format == "$rename_format" ]] || "${TMUX_CMD[@]}" set-option -gw automatic-rename-format "$new_format"
+# Window names show the agent name of the active pane (SPEC.md D14).  The
+# reporter applies it, so the options panel can change it live.
+"$REPORTER" window-name
 
 # Assemble the sidebar from lib/sidebar-format: one icon fragment for every
 # state, one agent row repeated per slot, and the overflow row (SPEC.md D4).
@@ -115,6 +94,7 @@ while IFS= read -r line; do
 	agent_row=*) FMT_AGENT_ROW=${line#agent_row=} ;;
 	more_row=*) FMT_MORE_ROW=${line#more_row=} ;;
 	layout=*) FMT_LAYOUT=${line#layout=} ;;
+	options=*) FMT_OPTIONS=${line#options=} ;;
 	esac
 done <"$CURRENT_DIR/lib/sidebar-format"
 
@@ -164,6 +144,7 @@ for ((slot = 1; slot <= VISIBLE_SLOTS; slot++)); do
 done
 format=${FMT_LAYOUT/\{AGENT_ROWS\}/"$agent_rows"}
 format=${format/\{MORE_ROW\}/"$FMT_MORE_ROW"}
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-options-panel "$FMT_OPTIONS"
 "${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$format")"
 
 # Session rows keep the default switch-client -t= behaviour.  Agent rows use a
