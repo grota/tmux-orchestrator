@@ -74,6 +74,7 @@ printf '{"pid":101,"sessionId":"ses_claude","name":"old-claude","messagingSocket
 "$BIN" rename "$PC:1" 'new claude name' || fail 'claude rename failed'
 assert_eq "$(jq -r .name "$CLAUDE_CONFIG_DIR/sessions/101.json")" 'new claude name'
 assert_eq "$(opt "$PC" @agent_1_name_raw)" 'new claude name'
+assert_eq "$(opt "$PC" @agent_active_name)" 'new claude name'
 
 # A Claude that ignores the rename fails loudly and keeps the old name.
 fake_agent claude-deaf "$TMP/deaf.sock"
@@ -96,6 +97,8 @@ assert_eq "$(opt "$PO" @agent_1_name_raw)" 'api v2'
 ERR=$("$BIN" rename "$PO:2" whatever 2>&1) && fail 'refused rename succeeded'
 [[ $ERR == *'OpenCode refused the rename: Session not found'* ]] || fail "unexpected error: $ERR"
 assert_eq "$(opt "$PO" @agent_2_name_raw)" docs
+# The tab in front names the window.
+assert_eq "$(opt "$PO" @agent_active_name)" 'api v2'
 
 # The prompt: a client types a name with quotes, $, ~, #, a comma, ; and \.  The
 # answer never passes through a shell, so it arrives unchanged.

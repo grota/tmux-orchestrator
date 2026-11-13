@@ -134,7 +134,7 @@ pane_session() {
 #
 # A pane stores its agents in numbered slots, in tab order:
 #   @agent_n, @agent_<i>_{sid,kind,state,since,name,name_raw,event},
-#   @agent_active, @agent_pane_rollup, @agent_pane_waiting, @agent_more_n,
+#   @agent_active, @agent_active_name, @agent_pane_rollup, @agent_pane_waiting, @agent_more_n,
 #   @agent_more_state,
 #   @agent_socket.
 # Pane options must not reuse a session option's name: tmux resolves a user
@@ -222,6 +222,18 @@ write_pane_summary() {
 		ACTIVE=1
 	fi
 	queue set-option -p -t "$pane" @agent_active "$ACTIVE"
+	# automatic-rename-format reads it: a format cannot look up the
+	# @agent_<i>_name of a computed slot (SPEC.md D14).
+	queue set-option -p -t "$pane" @agent_active_name "$(escape_hash "${RAW[ACTIVE]-}")"
+}
+
+# Give slot I of PANE the sanitized NAME, outside a full store_pane.
+set_slot_name() {
+	local pane=$1 i=$2 name=$3
+	set_pane_opt "$pane" "@agent_${i}_name" "$(escape_hash "$name")"
+	set_pane_opt "$pane" "@agent_${i}_name_raw" "$name"
+	[[ $(get_pane_opt "$pane" @agent_active) == "$i" ]] && set_pane_opt "$pane" @agent_active_name "$(escape_hash "$name")"
+	return 0
 }
 
 # Rewrite every slot after slots were added, removed or reordered.
@@ -972,8 +984,7 @@ refresh_name() {
 	load_pane "$pane"
 	i=$(find_slot "$sid")
 	[[ -n $i ]] || return 0
-	set_pane_opt "$pane" "@agent_${i}_name" "$(escape_hash "$name")"
-	set_pane_opt "$pane" "@agent_${i}_name_raw" "$name"
+	set_slot_name "$pane" "$i" "$name"
 	refresh_clients
 }
 
@@ -1318,8 +1329,7 @@ rename_agent() {
 	fi
 	# The slot may have changed while the agent renamed itself.
 	[[ $(get_pane_opt "$pane" "@agent_${slot}_sid") == "$sid" ]] || return 0
-	set_pane_opt "$pane" "@agent_${slot}_name" "$(escape_hash "$name")"
-	set_pane_opt "$pane" "@agent_${slot}_name_raw" "$name"
+	set_slot_name "$pane" "$slot" "$name"
 	refresh_clients
 }
 

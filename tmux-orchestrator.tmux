@@ -71,6 +71,26 @@ elif [[ $("${TMUX_CMD[@]}" show-options -gv focus-events 2>/dev/null) != on ]]; 
 	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: focus-events is off, so agents shown in a background terminal window do not notify" >/dev/null 2>&1 || true
 fi
 
+# Window names show the agent name of the active pane (SPEC.md D14): every
+# #{pane_current_command} in the global automatic-rename-format becomes
+# WINDOW_NAME, which falls back to it.  The replacement applied last is
+# recorded and turned back first, so a reload never wraps it twice and an
+# upgrade swaps it for the current one.
+COMMAND_TOKEN='#{pane_current_command}'
+WINDOW_NAME='#{?@agent_active_name,#{=20:@agent_active_name},#{pane_current_command}}'
+window_name=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name 2>/dev/null || true)
+applied=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name-applied 2>/dev/null || true)
+rename_format=$("${TMUX_CMD[@]}" show-options -gwv automatic-rename-format 2>/dev/null || true)
+new_format=$rename_format
+[[ -n $applied ]] && new_format=${new_format//"$applied"/"$COMMAND_TOKEN"}
+if [[ $window_name != off ]]; then
+	new_format=${new_format//"$COMMAND_TOKEN"/"$WINDOW_NAME"}
+	"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-window-name-applied "$WINDOW_NAME"
+else
+	"${TMUX_CMD[@]}" set-option -gu @tmux-orchestrator-window-name-applied
+fi
+[[ $new_format == "$rename_format" ]] || "${TMUX_CMD[@]}" set-option -gw automatic-rename-format "$new_format"
+
 # Assemble the sidebar from lib/sidebar-format: one icon fragment for every
 # state, one agent row repeated per slot, and the overflow row (SPEC.md D4).
 while IFS= read -r line; do

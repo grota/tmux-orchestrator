@@ -75,6 +75,8 @@ border to make room, double-click the border to snap it back.
   and OpenCode tab.
 - **Double-click** to rename: a session row renames the tmux session, an agent
   row renames the agent in Claude Code or OpenCode itself.
+- **Window names** follow the agent in the window's active pane, cut to 20
+  characters, and go back to the command when the agent exits.
 - **`? keys`**, the last row, lists every key binding the plugin knows about.
 
 | State   | Icon | Colour | Meaning                                    |
@@ -127,6 +129,7 @@ ones marked _live_ can also be changed later and apply at once.
 | `@tmux-orchestrator-focus-style`           | `underlined` | _Live._ How the agent you are viewing is marked: `underlined`, `bold` or `none`.               |
 | `@tmux-orchestrator-time`                  | `on`         | _Live._ `off` hides the state time.                                                            |
 | `@tmux-orchestrator-time-on-view`          | `keep`       | _Live._ `reset` restarts a `done` agent's time when you view it.                               |
+| `@tmux-orchestrator-window-name`           | `on`         | `off` keeps agent names out of window names.                                                   |
 | `@tmux-orchestrator-attention-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
 | `@tmux-orchestrator-attention-table`       | `prefix`     | Key table of the attention key; `root` binds it without the prefix.                            |
 | `@tmux-orchestrator-notify-desktop`        | `on`         | _Live._ Desktop notifications (`notify-send` or `osascript`).                                  |

@@ -1127,6 +1127,50 @@ A rename the agent does not confirm MUST show the reason to the client and MUST 
 - **WHEN** the agent does not confirm the rename
 - **THEN** tmux shows a message with the reason and the row keeps the old name
 
+### Window names follow the agent
+
+The plugin SHALL replace every `#{pane_current_command}` in the global `automatic-rename-format` with a format that shows the agent name of the pane, cut to 20 characters, and the pane's command when the pane has no agent. For an OpenCode pane the agent is the one in its active tab. The rest of the format MUST be kept, and a format without `#{pane_current_command}` MUST stay unchanged. Reloading the plugin MUST NOT apply the replacement twice, and a replacement left by an earlier plugin version MUST be swapped for the current one. With `@tmux-orchestrator-window-name` set to `off`, the plugin SHALL turn its replacement back into `#{pane_current_command}`. The name MUST be escaped like the sidebar's (Name safety). Window-level `automatic-rename-format` values and windows with `automatic-rename` off are not changed.
+
+#### Scenario: Default format
+
+- **WHEN** the format is tmux's default and the window's active pane runs the agent `fix-login`
+- **THEN** the window is named `fix-login`, and `[tmux]` while that pane is in copy mode
+
+#### Scenario: Long name
+
+- **WHEN** the agent name is `a-very-long-agent-name-here`
+- **THEN** the window is named `a-very-long-agent-na`
+
+#### Scenario: No agent
+
+- **WHEN** the window's active pane runs `bash` and no agent
+- **THEN** the window is named `bash`
+
+#### Scenario: Custom format
+
+- **WHEN** the format is `#{pane_current_command}:#{b:pane_current_path}`
+- **THEN** the agent name replaces the command and `:` with the directory follows it
+
+#### Scenario: Format without the command
+
+- **WHEN** the format is `#{b:pane_current_path}`
+- **THEN** the plugin leaves it unchanged
+
+#### Scenario: Reload
+
+- **WHEN** the plugin loads twice
+- **THEN** the format holds the replacement once
+
+#### Scenario: Turned off
+
+- **WHEN** `@tmux-orchestrator-window-name` is `off` and the plugin reloads
+- **THEN** the format is the user's format again
+
+#### Scenario: Agent renamed
+
+- **WHEN** the agent is renamed from the sidebar or inside the agent
+- **THEN** the window takes the new name the next time the pane draws
+
 ### Subagent indicator
 
 While a Claude Code agent has live subagents, its row SHALL show its main thread's state icon, then the icon of the most urgent state among its subagents followed by their count. The first line of the name MUST give up the columns the indicator takes, and wrapped lines MUST continue where it stops. Without subagents, the row SHALL show one icon for the agent's state.
@@ -1659,3 +1703,22 @@ Agent notifications used to appear as a tmux message, `display-message` on every
 
 - `notify status` no longer lists a `tmux` line.
 - Agent slots no longer store `@agent_<i>_notified_at`; the option left on running panes is ignored and goes with the pane.
+
+### D14. Window names come from automatic-rename-format
+
+Windows should be named after their agent without the user renaming them. The plugin replaces `#{pane_current_command}` in the global `automatic-rename-format` with `#{?@agent_active_name,#{=20:@agent_active_name},#{pane_current_command}}`. tmux keeps evaluating it, so the name follows the active pane, OpenCode tab switches and renames made inside the agent, and goes back to the command when the agent exits. Only the command part changes, so `[tmux]`, `[dead]` and any customisation around it stay. The plugin records the replacement in `@tmux-orchestrator-window-name-applied` and turns it back into `#{pane_current_command}` before applying the current one.
+
+**Considered options**
+
+- **`rename-window` when an agent is renamed from the sidebar.** Rejected: it turns `automatic-rename` off for that window for good, one of several agents in a window would overwrite the name, and renames made inside the agent would not follow.
+- **Wrap the whole format in a conditional.** Rejected: an agent pane in copy mode would show the agent name instead of `[tmux]`.
+- **Replace the format only when it is tmux's default.** Rejected: a customised format would never show agent names, and tmux can change its default.
+- **Override `pane_current_command`.** Not possible: it is a built-in variable read from the pane's process, and user options must start with `@`.
+- **Look up `@agent_<active>_name` in the format.** Not possible: tmux expands a nested `#{}` inside a variable name to text, not to a lookup. The reporter writes the active agent's name to the pane option `@agent_active_name` instead.
+
+**Consequences**
+
+- Only the exact text `#{pane_current_command}` is replaced; forms with modifiers such as `#{b:pane_current_command}` keep showing the command.
+- tmux re-evaluates the name only when the pane changes, so a rename shows once the agent next draws.
+- The name is stored with `#` doubled, because tmux reads `#[` in a window name as a style in the status line. `#{window_name}` printed outside a status line shows `##`.
+- A window renamed by hand has `automatic-rename` off and keeps its name.
