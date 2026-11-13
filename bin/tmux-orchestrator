@@ -553,22 +553,22 @@ focus_agent() {
 		sh -c "$command" </dev/null >/dev/null 2>&1 || true
 }
 
-# attention CLIENT
+# next-agent CLIENT
 # Bring CLIENT, or a client already showing it, to the next agent.  Every
 # agent is in one list: those that need attention first (blocked, then error,
 # then done, the longest waiting first), then the others in sidebar order.  An
 # agent that became blocked, error or done since the previous press comes
 # first; otherwise the agent after the one CLIENT views is chosen, wrapping
 # around, so repeated presses go through every agent.
-attention() {
+next_agent() {
 	local client=$1 pane i rank since order=0 cur slot entry sorted next='' first='' fresh='' found=0
 	local last now
 	local -a list=()
 	[[ -n $client ]] || return 0
-	last=$(get_global @tmux-orchestrator-attention-at)
+	last=$(get_global @tmux-orchestrator-next-agent-at)
 	[[ $last =~ ^[0-9]+$ ]] || last=0
 	now=$(date +%s)
-	tmux_ok set-option -g @tmux-orchestrator-attention-at "$now"
+	tmux_ok set-option -g @tmux-orchestrator-next-agent-at "$now"
 	while IFS= read -r pane; do
 		[[ -n $pane ]] || continue
 		order=$((order + 1))
@@ -1695,7 +1695,7 @@ usage: tmux-orchestrator <command> [options]
   refresh-name  re-read the agent name from `claude agents --json`
   focus         update the agents of the panes clients view
   focus-agent   bring a client to an agent: --pane ID [--session-id ID]
-  attention CLIENT  bring CLIENT to the next agent that needs attention
+  next-agent CLIENT  bring CLIENT to the next agent, those that need attention first
   select ROW    act on a sidebar row
   rename ROW NAME  rename the agent on a sidebar row (%P:<slot>) in the agent
   rename-prompt ROW CLIENT  ask CLIENT for a new name for that agent
@@ -1833,7 +1833,7 @@ main() {
 		pane=${pane:-${TMUX_PANE:-}}
 		[[ -n $pane && -n $socket ]] && set_pane_opt "$pane" @agent_socket "$socket"
 		;;
-	attention) attention "${1-}" ;;
+	next-agent) next_agent "${1-}" ;;
 	focus-agent)
 		local pane='' sid=''
 		while (($#)); do

@@ -15,7 +15,7 @@ RUN_RECONCILE="${REPORTER_PREFIX}'$REPORTER' reconcile"
 RUN_GC="${REPORTER_PREFIX}'$REPORTER' gc"
 RUN_TOGGLE="${REPORTER_PREFIX}'$REPORTER' toggle"
 RUN_RENAME="${REPORTER_PREFIX}'$REPORTER' rename-prompt"
-RUN_ATTENTION="${REPORTER_PREFIX}'$REPORTER' attention"
+RUN_NEXT_AGENT="${REPORTER_PREFIX}'$REPORTER' next-agent"
 # Not named TMUX: assigning an array to it drops tmux's own TMUX variable
 # from every command, which then talks to the default server.
 TMUX_CMD=("${TMUX_BIN:-tmux}")
@@ -162,8 +162,8 @@ while IFS='|' read -r code grp label option default values load help; do
 		value="#{?@tmux-orchestrator-$option,#{@tmux-orchestrator-$option},${default:-none}}"
 	fi
 	open="#{==:#{@tmux-orchestrator-options-info},$code}"
-	panel+="#[range=user|d:$code]#{?$open,#[underscore],}$(printf '%-15s' "$label")#[nounderscore norange] "
-	panel+="#[range=user|o:$code]#[bold]#{=/#{e|-:#{side-status-width},17}/…:$value}#[norange default]#[nl]"
+	panel+="#[range=user|d:$code]#{?$open,#[underscore],}$(printf '%-18s' "$label")#[nounderscore norange] "
+	panel+="#[range=user|o:$code]#[bold]#{=/#{e|-:#{side-status-width},20}/…:$value}#[norange default]#[nl]"
 	# The option name goes on fixed lines: wrapping would cut it mid-word.
 	panel+="#{?$open,#{E:@tmux-orchestrator-info-lines}  #[fg=colour8]tmux option:#[nl]  @tmux-orchestrator-#[nl]  $option#[default]#[nl],}"
 done <"$CURRENT_DIR/lib/options-panel"
@@ -215,25 +215,26 @@ else
 	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: prefix $toggle_key is already bound, so the sidebar toggle key was not bound" >/dev/null 2>&1 || true
 fi
 
-# The attention key is bound only when @tmux-orchestrator-attention-key is
-# set, in the key table @tmux-orchestrator-attention-table names (prefix by
+# The next agent key is bound only when @tmux-orchestrator-next-agent-key is
+# set, in the key table @tmux-orchestrator-next-agent-table names (prefix by
 # default, root for a key without the prefix, or any other table).  Like the
 # toggle key it never overwrites a user binding, and our binding of an earlier
 # key or table goes.
-attention_key=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-attention-key 2>/dev/null || true)
-attention_table=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-attention-table 2>/dev/null || true)
-[[ -n $attention_table ]] || attention_table=prefix
-is_our_attention() { [[ $1 == *bin/tmux-orchestrator*' attention'* ]]; }
+next_agent_key=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-next-agent-key 2>/dev/null || true)
+next_agent_table=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-next-agent-table 2>/dev/null || true)
+[[ -n $next_agent_table ]] || next_agent_table=prefix
+# The reporter command was called attention before; such a binding is ours too.
+is_our_next_agent() { [[ $1 == *bin/tmux-orchestrator*' next-agent'* || $1 == *bin/tmux-orchestrator*' attention'* ]]; }
 while IFS='|' read -r table key command; do
-	[[ $table == "$attention_table" && $key == "$attention_key" ]] && continue
-	is_our_attention "$command" && "${TMUX_CMD[@]}" unbind-key -T "$table" "$key"
+	[[ $table == "$next_agent_table" && $key == "$next_agent_key" ]] && continue
+	is_our_next_agent "$command" && "${TMUX_CMD[@]}" unbind-key -T "$table" "$key"
 done < <("${TMUX_CMD[@]}" list-keys -F '#{key_table}|#{key_string}|#{key_command}' 2>/dev/null || true)
-if [[ -n $attention_key ]]; then
-	existing=$("${TMUX_CMD[@]}" list-keys -T "$attention_table" -F '#{key_command}' "$attention_key" 2>/dev/null || true)
-	if [[ -z $existing ]] || is_our_attention "$existing"; then
-		"${TMUX_CMD[@]}" bind-key -T "$attention_table" "$attention_key" run-shell -b "$RUN_ATTENTION '#{client_name}'"
+if [[ -n $next_agent_key ]]; then
+	existing=$("${TMUX_CMD[@]}" list-keys -T "$next_agent_table" -F '#{key_command}' "$next_agent_key" 2>/dev/null || true)
+	if [[ -z $existing ]] || is_our_next_agent "$existing"; then
+		"${TMUX_CMD[@]}" bind-key -T "$next_agent_table" "$next_agent_key" run-shell -b "$RUN_NEXT_AGENT '#{client_name}'"
 	else
-		"${TMUX_CMD[@]}" display-message "tmux-orchestrator: $attention_key is already bound in the $attention_table table, so the attention key was not bound" >/dev/null 2>&1 || true
+		"${TMUX_CMD[@]}" display-message "tmux-orchestrator: $next_agent_key is already bound in the $next_agent_table table, so the next agent key was not bound" >/dev/null 2>&1 || true
 	fi
 fi
 

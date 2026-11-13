@@ -360,13 +360,16 @@ tmux -L "$S" display -p "$FMT" | grep -Fq 'prefix K  gc' || fail 'new binding no
 assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-keys)" ''
 # The panel's text without its style markup, one line per #[nl].
 options_text() { tmux -L "$S" display -p "$FMT" | sed 's/#\[nl\]/\n/g; s/#\[[^]]*\]//g'; }
+# At the default width a long value is cut; a wider sidebar shows it whole.
+options_text | grep -Fxq 'focused style      underlin…' || fail 'long value not cut at 28 columns'
+tmux -L "$S" set-option -g side-status-width 40
 PANEL=$(options_text)
-for line in sidebar 'state time      on' 'focus style     underlined' 'name length     none' 'terminal        off' 'pause           off' 'attention table prefix' 'window names    on'; do
+for line in sidebar 'state time         on' 'focused style      underlined' 'agent names length none' 'terminal           off' 'paused             off' 'next agent table   prefix' 'window names       on'; do
 	grep -Fxq -- "$line" <<<"$PANEL" || fail "options panel lacks [$line]"
 done
 "$BIN" select o:time
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" off
-options_text | grep -Fxq 'state time      off' || fail 'time line not updated'
+options_text | grep -Fxq 'state time         off' || fail 'time line not updated'
 "$BIN" select o:time
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" on
 "$BIN" select o:focus
@@ -394,14 +397,14 @@ assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-notify-timeout)" 
 answer raise 'echo "a b" # c'
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-raise-command)" 'echo "a b" # c'
 answer raise ''
-answer attkey 'M a' || true
-assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-attention-key)" ''
+answer nextkey 'M a' || true
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-next-agent-key)" ''
 
 # An option read at load applies at once: the loader runs again.
-answer attkey M-z
-[[ $(tmux -L "$S" list-keys -T prefix M-z) == *' attention'* ]] || fail 'attention key not bound from the panel'
-answer attkey ''
-tmux -L "$S" list-keys -T prefix M-z >/dev/null 2>&1 && fail 'attention key still bound'
+answer nextkey M-z
+[[ $(tmux -L "$S" list-keys -T prefix M-z) == *' next-agent'* ]] || fail 'next agent key not bound from the panel'
+answer nextkey ''
+tmux -L "$S" list-keys -T prefix M-z >/dev/null 2>&1 && fail 'next agent key still bound'
 "$BIN" select o:side
 assert_eq "$(tmux -L "$S" show-options -gv side-status)" right
 "$BIN" select o:side
@@ -416,7 +419,7 @@ grep -Fxq 'Sessions' <<<"$PANEL" || fail 'lists hidden with a description open'
 [[ $(grep -n -Fx '  in an ellipsis.' <<<"$PANEL" | cut -d: -f1) -lt $(grep -n -Fx 'Sessions' <<<"$PANEL" | cut -d: -f1) ]] || fail 'description not above the lists'
 # The description wraps at spaces within the width.
 while IFS= read -r line; do
-	((${#line} <= 28)) || fail "description line too long: [$line]"
+	((${#line} <= 40)) || fail "description line too long: [$line]"
 done <<<"$PANEL"
 grep -A2 -Fx '  tmux option:' <<<"$PANEL" | tr -d '\n' | grep -Fxq '  tmux option:  @tmux-orchestrator-  name-wrap' || fail 'option name not shown'
 "$BIN" select d:wrap
@@ -426,6 +429,7 @@ options_text | grep -Fq 'tmux option:' && fail 'description not closed'
 assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-options-info)" ''
 tmux -L "$S" set-option -gu @tmux-orchestrator-time
 tmux -L "$S" set-option -gu @tmux-orchestrator-focus-style
+tmux -L "$S" set-option -g side-status-width 28
 tmux -L "$S" unbind-key N
 tmux -L "$S" unbind-key M
 tmux -L "$S" unbind-key X

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# The attention key: its binding, and which agent and client it brings forward.
+# The next agent key: its binding, and which agent and client it brings forward.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN="$ROOT/bin/tmux-orchestrator"
 . "$ROOT/tests/helpers.sh"
-S="tmux-orchestrator-attention-$$"
+S="tmux-orchestrator-next-agent-$$"
 export TMUX_SOCKET=$S
 TMP=$(mktemp -d)
 RAISE_LOG="$TMP/raise.log"
@@ -44,21 +44,21 @@ PB=$(pane_of beta:agents.0)
 
 # No key is bound by default.  A key binds in the prefix table, or in the
 # table the option names, and moves when the table changes.
-tmux -L "$S" list-keys | grep -q ' attention' && fail 'attention key bound by default'
-tmux -L "$S" set-option -g @tmux-orchestrator-attention-key M-a
+tmux -L "$S" list-keys | grep -q ' next-agent' && fail 'next agent key bound by default'
+tmux -L "$S" set-option -g @tmux-orchestrator-next-agent-key M-a
 "$ROOT/tmux-orchestrator.tmux"
-tmux -L "$S" list-keys -T prefix M-a | grep -q ' attention' || fail 'not bound after the prefix'
-tmux -L "$S" set-option -g @tmux-orchestrator-attention-table root
+tmux -L "$S" list-keys -T prefix M-a | grep -q ' next-agent' || fail 'not bound after the prefix'
+tmux -L "$S" set-option -g @tmux-orchestrator-next-agent-table root
 "$ROOT/tmux-orchestrator.tmux"
-tmux -L "$S" list-keys -T root M-a | grep -q ' attention' || fail 'not bound in the root table'
+tmux -L "$S" list-keys -T root M-a | grep -q ' next-agent' || fail 'not bound in the root table'
 [[ -z $(tmux -L "$S" list-keys -T prefix M-a 2>/dev/null) ]] || fail 'prefix binding left behind'
 # A user's own binding is never overwritten.
 tmux -L "$S" bind-key -n M-s display-message mine
-tmux -L "$S" set-option -g @tmux-orchestrator-attention-key M-s
+tmux -L "$S" set-option -g @tmux-orchestrator-next-agent-key M-s
 "$ROOT/tmux-orchestrator.tmux"
 tmux -L "$S" list-keys -T root M-s | grep -q 'display-message mine' || fail 'user binding overwritten'
 [[ -z $(tmux -L "$S" list-keys -T root M-a 2>/dev/null) ]] || fail 'old key left behind'
-tmux -L "$S" set-option -gu @tmux-orchestrator-attention-key
+tmux -L "$S" set-option -gu @tmux-orchestrator-next-agent-key
 "$ROOT/tmux-orchestrator.tmux"
 
 tmux -L "$S" set-option -g @tmux-orchestrator-raise-command \
@@ -74,10 +74,10 @@ C2=$(client_of beta)
 
 st() { tmux -L "$S" show-options -pv -t "$1" @agent_1_state; }
 since() { tmux -L "$S" set-option -p -t "$1" @agent_1_since "$2"; }
-at() { tmux -L "$S" set-option -g @tmux-orchestrator-attention-at "$1"; }
+at() { tmux -L "$S" set-option -g @tmux-orchestrator-next-agent-at "$1"; }
 
 # Without agents, the client is told so.
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 for _ in $(seq 1 30); do
 	grep -aFq 'No agents' "$TMP/alpha.log" && break
 	sleep 0.1
@@ -86,7 +86,7 @@ grep -aFq 'No agents' "$TMP/alpha.log" || fail 'no message without agents'
 
 # With nothing that needs attention, the key goes through all agents.
 report_state "$P0" idle p0 claude s0
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P0"
 
 # Agents that need attention come first: blocked, then error, then done.
@@ -100,17 +100,17 @@ since "$P0" $((NOW - 20))
 since "$P1" $((NOW - 30))
 since "$PB" $((NOW - 10))
 tmux -L "$S" select-window -t alpha:other
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(client_fmt "$C2" '#{pane_id}')" "$PB"
 assert_eq "$(client_fmt "$C1" '#{window_name}')" other
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C2 $PB"
 
 # From the client viewing it, the next press goes on to the error, which the
 # client in its session shows, then to the done agent.
-"$BIN" attention "$C2"
+"$BIN" next-agent "$C2"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P0"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C1 $P0"
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P1"
 for _ in $(seq 1 30); do
 	[[ $(st "$P1") == idle ]] && break
@@ -120,16 +120,16 @@ assert_eq "$(st "$P1")" idle
 
 # The viewed done agent is now idle and last in the list, so the next press
 # wraps to the first.
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C2 $PB"
 
 # An agent that became urgent since the last press comes before the next one
 # in the list; one already urgent at the last press waits its turn.
 tmux -L "$S" select-pane -t "$P0"
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$P1"
 since "$PB" $(($(date +%s) + 50))
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C2 $PB"
 
 # With no client in the agent's session, the client pressing the key goes.
@@ -140,8 +140,8 @@ for _ in $(seq 1 30); do
 	sleep 0.1
 done
 since "$PB" $(($(date +%s) + 100))
-"$BIN" attention "$C1"
+"$BIN" next-agent "$C1"
 assert_eq "$(client_fmt "$C1" '#{pane_id}')" "$PB"
 assert_eq "$(tail -n 1 "$RAISE_LOG")" "$C1 $PB"
 
-printf 'attention tests passed\n'
+printf 'next agent tests passed\n'

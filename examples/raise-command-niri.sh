@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Raise the niri window of the terminal that runs the tmux client a
-# notification click or the attention key brought to an agent.  Use it as
+# notification click or the next agent key brought to an agent.  Use it as
 # @tmux-orchestrator-raise-command.
 #
 # The window is the one whose process is an ancestor of the client.  When that

@@ -14,13 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `option-answer` reporter command.
 - `window-name` reporter command; `@tmux-orchestrator-window-name` is live.
 - Window names show the agent name of the active pane through `automatic-rename-format`; `@tmux-orchestrator-window-name` is `on`, `force` or `off`.
-- Attention key: `@tmux-orchestrator-attention-key` and `@tmux-orchestrator-attention-table` bind a key that goes through all agents, those that are blocked, in error or done first.
+- Next agent key: `@tmux-orchestrator-next-agent-key` and `@tmux-orchestrator-next-agent-table` bind a key that goes through all agents, those that are blocked, in error or done first.
 - A Claude Code agent's row shows how many background tasks its main thread has running, as a blue `·` and a count.
 - `@tmux-orchestrator-focus-events` option: the plugin turns on tmux's `focus-events` unless it is `off`, and warns when it stays off.
 - Clicking a desktop notification brings a tmux client to the agent.
 - A new `notify-send` notification replaces the agent's previous one while it is still shown.
 - `@tmux-orchestrator-notify-timeout` option: seconds a desktop notification stays open and can be clicked, `5` by default.
-- `@tmux-orchestrator-raise-command` option, run after a notification click or the attention key to bring the terminal window forward, with `examples/raise-command-niri.sh` for niri.
+- `@tmux-orchestrator-raise-command` option, run after a notification click or the next agent key to bring the terminal window forward, with `examples/raise-command-niri.sh` for niri.
 - `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.
 - `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.

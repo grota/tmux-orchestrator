@@ -25,9 +25,9 @@ _Avoid_: title, label
 The agent a client is looking at: the one in the pane it views, and for OpenCode the one in that pane's active tab. At most one per client. With tmux's `focus-events` on, a client whose terminal window does not have focus views no agent.
 _Avoid_: selected agent, current agent, active agent
 
-**Attention key**:
+**Next agent key**:
 An optional key binding that brings the user to the next agent across all tmux sessions, those that need attention first.
-_Avoid_: jump key, next key
+_Avoid_: attention key, jump key
 
 **Agent kind**:
 The product an agent belongs to: Claude Code or OpenCode.
@@ -1020,11 +1020,11 @@ The sidebar SHALL emphasise the focused agent's name for the client viewing it, 
 - **WHEN** `@tmux-orchestrator-focus-style` is `none`
 - **THEN** the focused agent's name looks like any other agent's name
 
-### Attention key
+### Next agent key
 
-When `@tmux-orchestrator-attention-key` is set, the system SHALL bind that key in the tmux key table named by `@tmux-orchestrator-attention-table` (`prefix` by default; `root` binds it without the prefix). Without the key option it MUST NOT bind anything. Like the toggle key, it MUST NOT overwrite a binding it did not create, and a reload MUST remove its earlier binding of another key or table.
+When `@tmux-orchestrator-next-agent-key` is set, the system SHALL bind that key in the tmux key table named by `@tmux-orchestrator-next-agent-table` (`prefix` by default; `root` binds it without the prefix). Without the key option it MUST NOT bind anything. Like the toggle key, it MUST NOT overwrite a binding it did not create, and a reload MUST remove its earlier binding of another key or table.
 
-Pressing the key SHALL bring the user to another agent, across all tmux sessions, from one list: agents that need attention first (`blocked`, then `error`, then `done`, and within each state the one whose state time is longest), then every other agent in sidebar order. The first agent that became `blocked`, `error` or `done` after the previous press SHALL be chosen; otherwise the agent after the one the pressing client views, wrapping after the last, or the first when the client views none. The time of each press SHALL be stored in `@tmux-orchestrator-attention-at`. The client brought to the agent SHALL be one already showing the agent's window, else one attached to the agent's tmux session, else the pressing client, and the system SHALL then run `@tmux-orchestrator-raise-command` as for a notification click. With no agents, the pressing client SHALL show `No agents`.
+Pressing the key SHALL bring the user to another agent, across all tmux sessions, from one list: agents that need attention first (`blocked`, then `error`, then `done`, and within each state the one whose state time is longest), then every other agent in sidebar order. The first agent that became `blocked`, `error` or `done` after the previous press SHALL be chosen; otherwise the agent after the one the pressing client views, wrapping after the last, or the first when the client views none. The time of each press SHALL be stored in `@tmux-orchestrator-next-agent-at`. The client brought to the agent SHALL be one already showing the agent's window, else one attached to the agent's tmux session, else the pressing client, and the system SHALL then run `@tmux-orchestrator-raise-command` as for a notification click. With no agents, the pressing client SHALL show `No agents`.
 
 #### Scenario: Agent in another terminal window
 
@@ -1053,8 +1053,8 @@ Pressing the key SHALL bring the user to another agent, across all tmux sessions
 
 #### Scenario: Key already taken
 
-- **WHEN** `M-a` is already bound in the root table by the user and the attention key is set to `M-a` in `root`
-- **THEN** the user's binding stays and the attention key is not bound
+- **WHEN** `M-a` is already bound in the root table by the user and the next agent key is set to `M-a` in `root`
+- **THEN** the user's binding stays and the next agent key is not bound
 
 ### Keys panel
 
@@ -1095,17 +1095,17 @@ The sidebar SHALL show a clickable `≡ options` entry left of `? keys` that ope
 | sidebar | `width` | `width` | prompt, a number of at least 10 |
 | sidebar | `state time` | `time` | `on`, `off` |
 | sidebar | `time on view` | `time-on-view` | `keep`, `reset` |
-| sidebar | `names` | `name-wrap` | `wrap`, `nowrap` |
-| sidebar | `name length` | `name-max-chars` | prompt, a number of at least 1 |
-| sidebar | `focus style` | `focus-style` | `underlined`, `bold`, `none` |
+| sidebar | `wrap agent names` | `name-wrap` | `wrap`, `nowrap` |
+| sidebar | `agent names length` | `name-max-chars` | prompt, a number of at least 1 |
+| sidebar | `focused style` | `focus-style` | `underlined`, `bold`, `none` |
 | notifications | `desktop` | `notify-desktop` | `on`, `off` |
 | notifications | `terminal` | `notify-terminal` | `off`, `on` |
-| notifications | `pause` | `notify-paused` | `off`, `on` |
-| notifications | `timeout` | `notify-timeout` | prompt, a number of at least 1 |
+| notifications | `paused` | `notify-paused` | `off`, `on` |
+| notifications | `desktop timeout` | `notify-timeout` | prompt, a number of at least 1 |
 | notifications | `raise command` | `raise-command` | prompt, any text |
-| keys | `toggle key` | `toggle-key` | prompt, one key name |
-| keys | `attention key` | `attention-key` | prompt, one key name |
-| keys | `attention table` | `attention-table` | prompt, any text |
+| keys | `sidebar toggle` | `toggle-key` | prompt, one key name |
+| keys | `next agent` | `next-agent-key` | prompt, one key name |
+| keys | `next agent table` | `next-agent-table` | prompt, any text |
 | tmux | `window names` | `window-name` | `on`, `force`, `off` |
 | tmux | `focus events` | `focus-events` | `on`, `off` |
 
@@ -1140,7 +1140,7 @@ Clicking a label SHALL open that option's description under its line, with the u
 
 #### Scenario: Prompt
 
-- **WHEN** the user clicks the timeout value and answers `9`
+- **WHEN** the user clicks the desktop timeout value and answers `9`
 - **THEN** `@tmux-orchestrator-notify-timeout` is `9`
 
 #### Scenario: Invalid answer
@@ -1150,13 +1150,13 @@ Clicking a label SHALL open that option's description under its line, with the u
 
 #### Scenario: Empty answer
 
-- **WHEN** the user clears the attention key prompt and presses Enter
-- **THEN** the option is unset, the plugin loader runs again and the attention key is no longer bound
+- **WHEN** the user clears the next agent key prompt and presses Enter
+- **THEN** the option is unset, the plugin loader runs again and the next agent key is no longer bound
 
 #### Scenario: Description
 
-- **WHEN** the user clicks the `names` label
-- **THEN** the description of `names` shows under its line wrapped to the sidebar width, followed by `@tmux-orchestrator-name-wrap`, and a second click closes it
+- **WHEN** the user clicks the `wrap agent names` label
+- **THEN** the description of `wrap agent names` shows under its line wrapped to the sidebar width, followed by `@tmux-orchestrator-name-wrap`, and a second click closes it
 
 #### Scenario: Restart
 
@@ -1737,7 +1737,7 @@ Renaming an agent from the sidebar should rename it in the agent itself, so othe
 
 ### D10. The terminal window is raised through a user command
 
-Clicking a desktop notification, or pressing the attention key, should show the agent, often in another terminal window. tmux can switch a client to the agent's pane, but it cannot raise the terminal window that runs the client, and how to do that depends on the compositor or window manager. The reporter therefore does the tmux part and hands the window part to a user command, `@tmux-orchestrator-raise-command`, with the client's pid and tty. `examples/raise-command-niri.sh` does it for niri.
+Clicking a desktop notification, or pressing the next agent key, should show the agent, often in another terminal window. tmux can switch a client to the agent's pane, but it cannot raise the terminal window that runs the client, and how to do that depends on the compositor or window manager. The reporter therefore does the tmux part and hands the window part to a user command, `@tmux-orchestrator-raise-command`, with the client's pid and tty. `examples/raise-command-niri.sh` does it for niri.
 
 **Considered options**
 

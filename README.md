@@ -93,7 +93,7 @@ border to make room, double-click the border to snap it back.
 | idle    | `○`  | green  | nothing to do                              |
 | unknown | `·`  | grey   | no state yet                               |
 
-### Attention key
+### Next agent key
 
 One key to triage everything. Each press takes you straight to the next agent
 that needs you, across all tmux sessions and terminal windows: blocked ones
@@ -137,8 +137,8 @@ be changed from the sidebar's `≡ options` panel.
 | `@tmux-orchestrator-time`                  | `on`         | _Live._ `off` hides the state time.                                                            |
 | `@tmux-orchestrator-time-on-view`          | `keep`       | _Live._ `reset` restarts a `done` agent's time when you view it.                               |
 | `@tmux-orchestrator-window-name`           | `on`         | _Live._ `off` leaves window names alone; `force` works without the command in your format.     |
-| `@tmux-orchestrator-attention-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
-| `@tmux-orchestrator-attention-table`       | `prefix`     | Key table of the attention key; `root` binds it without the prefix.                            |
+| `@tmux-orchestrator-next-agent-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
+| `@tmux-orchestrator-next-agent-table`       | `prefix`     | Key table of the next agent key; `root` binds it without the prefix.                            |
 | `@tmux-orchestrator-notify-desktop`        | `on`         | _Live._ Desktop notifications (`notify-send` or `osascript`).                                  |
 | `@tmux-orchestrator-notify-terminal`       | `off`        | _Live._ An OSC 9 notification shown by the terminal (Ghostty, iTerm2, WezTerm), even over SSH. |
 | `@tmux-orchestrator-notify-timeout`        | `5`          | _Live._ Seconds a desktop notification stays open and can be clicked.                          |
@@ -149,14 +149,14 @@ be changed from the sidebar's `≡ options` panel.
 Examples:
 
 ```tmux
-set -g @tmux-orchestrator-attention-key M-a
-set -g @tmux-orchestrator-attention-table root   # no prefix needed
+set -g @tmux-orchestrator-next-agent-key M-a
+set -g @tmux-orchestrator-next-agent-table root   # no prefix needed
 set -g @tmux-orchestrator-raise-command '~/.tmux/plugins/tmux-orchestrator/examples/raise-command-niri.sh'
 ```
 
 `examples/raise-command-niri.sh` raises the terminal window on niri.
 
-The plugin never overwrites a key binding of yours: if the toggle or attention
+The plugin never overwrites a key binding of yours: if the toggle or next agent
 key is taken, it keeps your binding and tells you.
 
 ## Commands

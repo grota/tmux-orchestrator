@@ -16,16 +16,16 @@ side|sidebar|side|side|left|left right|1|Which side of the terminal the sidebar 
 width|sidebar|width|width|28|#number:10|1|Sidebar width in columns, at least 10. Dragging the border changes one tmux session only, and double-clicking the border goes back to this width.
 time|sidebar|state time|time|on|on off|0|Shows how long each agent has been in its state, on the line under its name.
 view|sidebar|time on view|time-on-view|keep|keep reset|0|What viewing a done agent does to its state time: keep goes on counting, reset starts again from zero.
-wrap|sidebar|names|name-wrap|wrap|wrap nowrap|0|Long agent names: wrap continues them over up to four lines, nowrap cuts them to one line ending in an ellipsis.
-length|sidebar|name length|name-max-chars||#number:1|0|Cuts agent names to this many characters, ending in an ellipsis. Empty for no limit. With wrap, the cut name still wraps.
-focus|sidebar|focus style|focus-style|underlined|underlined bold none|0|How the name of the agent you are viewing stands out.
+wrap|sidebar|wrap agent names|name-wrap|wrap|wrap nowrap|0|Long agent names: wrap continues them over up to four lines, nowrap cuts them to one line ending in an ellipsis.
+length|sidebar|agent names length|name-max-chars||#number:1|0|Cuts agent names to this many characters, ending in an ellipsis. Empty for no limit. With wrap, the cut name still wraps.
+focus|sidebar|focused style|focus-style|underlined|underlined bold none|0|How the name of the agent you are viewing stands out.
 desktop|notifications|desktop|notify-desktop|on|on off|0|Desktop notifications, through notify-send on Linux or osascript on macOS, when an agent is blocked, fails or finishes while you are not viewing it.
 terminal|notifications|terminal|notify-terminal|off|off on|0|Notifications sent as an OSC 9 escape that the terminal shows itself (Ghostty, iTerm2, WezTerm), also over SSH.
-pause|notifications|pause|notify-paused|off|off on|0|on stops all notifications until you turn it off again. Agent states keep updating.
-timeout|notifications|timeout|notify-timeout|5|#number:1|0|Seconds a desktop notification stays open and can be clicked to go to its agent.
-raise|notifications|raise command|raise-command||#text|0|Shell command run after a notification click or the attention key, to bring the terminal window forward. Empty for none.
-toggle|keys|toggle key|toggle-key|O|#key|1|Key, after the prefix, that shows and hides the sidebar. A key you have bound yourself is never overwritten.
-attkey|keys|attention key|attention-key||#key|1|Key that goes to the next agent needing you, blocked, failed or done ones first. Empty leaves it unbound.
-atttable|keys|attention table|attention-table|prefix|#text|1|Key table of the attention key: prefix to press it after the prefix, root to press it alone.
+pause|notifications|paused|notify-paused|off|off on|0|on stops all notifications until you turn it off again. Agent states keep updating.
+timeout|notifications|desktop timeout|notify-timeout|5|#number:1|0|Seconds a desktop notification stays open and can be clicked to go to its agent.
+raise|notifications|raise command|raise-command||#text|0|Shell command run after a notification click or the next agent key, to bring the terminal window forward. Empty for none.
+toggle|keys|sidebar toggle|toggle-key|O|#key|1|Key, after the prefix, that shows and hides the sidebar. A key you have bound yourself is never overwritten.
+nextkey|keys|next agent|next-agent-key||#key|1|Key that goes to the next agent needing you, blocked, failed or done ones first. Empty leaves it unbound.
+nexttable|keys|next agent table|next-agent-table|prefix|#text|1|Key table of the next agent key: prefix to press it after the prefix, root to press it alone.
 window|tmux|window names|window-name|on|on force off|0|Names windows after the agent in their active pane. on replaces the command in automatic-rename-format, force replaces the whole format, off leaves it alone.
 fevents|tmux|focus events|focus-events|on|on off|1|on turns on tmux focus-events, so a terminal window without focus does not count as viewing its agent. off leaves focus-events as you set it.
