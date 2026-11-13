@@ -297,18 +297,19 @@ assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ●1"
 assert_eq "$(opt "$PS" @agent_1_state)" done
 assert_eq "$(row "$PS" | plain | head -1 | cut -c1-2)" "✓ "
 # A subagent that stops while its own background task runs stays listed as
-# idle and does not keep the agent working; it goes once no list of running
-# tasks has that task.
+# idle, its task counted, and does not keep the agent working; both go once
+# no list of running tasks has that task.
 "$BIN" report --pane "$PS" --kind claude --event PostToolUse --agent a4 --task t4
 assert_eq "$(opt "$PS" @agent_1_state)" working
 "$BIN" report --pane "$PS" --kind claude --event SubagentStop --agent a4 --tasks 't4'
 assert_eq "$(opt "$PS" @agent_1_state)" done
-assert_eq "$(row "$PS" | plain | head -1 | cut -c1-4)" "✓ ○1"
-assert_eq "$(opt "$PS" @agent_1_tasks_n)" ''
+assert_eq "$(row "$PS" | plain | head -1 | cut -c1-7)" "✓ ○1 ·1"
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 1
 "$BIN" report --pane "$PS" --kind claude --event Stop --session-id ssub --tasks ''
 assert_eq "$(opt "$PS" @agent_1_subagents_n)" ''
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" ''
 assert_eq "$(opt "$PS" @agent_1_state)" done
-# Background tasks the main thread launched follow the subagents as a blue
+# Background tasks the agent launched follow the subagents as a blue
 # dot and their count; the name gives them room too.  A Stop hook's list of
 # running tasks replaces them.
 "$BIN" report --pane "$PS" --kind claude --event UserPromptSubmit --session-id ssub
@@ -318,9 +319,9 @@ assert_eq "$(opt "$PS" @agent_1_state)" done
 assert_eq "$(opt "$PS" @agent_1_tasks_n)" 2
 row "$PS" | grep -Fq '#[fg=blue]·2' || fail 'task dot not blue'
 assert_eq "$(row "$PS" | plain | head -1)" "● ●1 ·2 $(printf 's%.0s' {1..19})"
-# A subagent's background task is not the main thread's.
+# A subagent's background task counts too.
 "$BIN" report --pane "$PS" --kind claude --event PostToolUse --agent a4 --task b9
-assert_eq "$(opt "$PS" @agent_1_tasks_n)" 2
+assert_eq "$(opt "$PS" @agent_1_tasks_n)" 3
 "$BIN" report --pane "$PS" --kind claude --event Stop --tasks b2
 assert_eq "$(opt "$PS" @agent_1_tasks_n)" 1
 assert_eq "$(opt "$PS" @agent_1_main)" done

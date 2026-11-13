@@ -662,7 +662,7 @@ event_label() {
 # seconds belongs to a reporter that died, and is taken over.  The lock never
 # blocks a report: without a lock directory, COMMAND runs unlocked.
 with_pane_lock() {
-	local pane=$1 dir lock tries=0 rc
+	local pane=$1 dir lock tries=0 missing=0 rc
 	shift
 	dir="${TMPDIR:-/tmp}/tmux-orchestrator-${UID:-0}"
 	if ! { [[ -d $dir ]] || mkdir -p "$dir" 2>/dev/null; }; then
@@ -671,7 +671,15 @@ with_pane_lock() {
 	fi
 	lock="$dir/lock-${TMUX_SOCKET:-default}-${pane//[^A-Za-z0-9]/_}"
 	while ! mkdir "$lock" 2>/dev/null; do
-		[[ -d $lock ]] || { "$@"; return; }
+		# The holder may release the lock between mkdir and this test; only a
+		# lock that cannot be made at all runs the update without it.
+		if [[ ! -d $lock ]]; then
+			missing=$((missing + 1))
+			((missing < 20)) && continue
+			"$@"
+			return
+		fi
+		missing=0
 		tries=$((tries + 1))
 		if ((tries % 100 == 0)); then
 			rmdir "$lock" 2>/dev/null || true
@@ -726,16 +734,6 @@ report_event() {
 			[[ $main_verb == set ]] && main=$main_next
 		fi
 		subs=$(agent_subagents "$SUBS" "$kind" "$event" "$detail" "$actor" "$(date +%s)" "$task" "$snapshot" "$has_snapshot")
-		# A Stop hook lists the whole session's tasks; the subagents' own are
-		# theirs, not the main thread's.
-		if [[ $has_snapshot == 1 ]]; then
-			local owned own_task kept=''
-			owned=" $(agent_subagent_tasks "$subs") "
-			for own_task in $snapshot; do
-				[[ $owned == *" $own_task "* ]] || kept+="${kept:+ }$own_task"
-			done
-			snapshot=$kept
-		fi
 		tasks=$(agent_tasks "$TASKS" "$kind" "$event" "$actor" "$(date +%s)" "$task" "$snapshot" "$has_snapshot" "$ended")
 	fi
 

@@ -95,11 +95,9 @@ got=$(agent_subagents_summary 'a1:working::1 a2:blocked:t1:2 a3:idle:t2,t3:3')
 [[ $got == '3 blocked' ]] || { printf 'FAIL: summary [%s]\n' "$got" >&2; FAILS=$((FAILS + 1)); }
 got=$(agent_subagents_summary '')
 [[ $got == '0 ' ]] || { printf 'FAIL: empty summary [%s]\n' "$got" >&2; FAILS=$((FAILS + 1)); }
-got=$(agent_subagent_tasks 'a1:working::1 a2:blocked:t1:2 a3:idle:t2,t3:3')
-[[ $got == 't1 t2 t3' ]] || { printf 'FAIL: subagent tasks [%s]\n' "$got" >&2; FAILS=$((FAILS + 1)); }
 
-# Background tasks: a main-thread launch adds one, and a Stop hook's list of
-# running tasks replaces them.  An interrupt keeps them.
+# Background tasks: a launch by any actor adds one, and a Stop or SubagentStop
+# hook's list of running tasks replaces them.  An interrupt keeps them.
 tk() {
 	local expected=$1 got
 	shift
@@ -109,7 +107,8 @@ tk() {
 tk 't1:100' '' claude PostToolUse main 100 t1 '' 0
 tk 't1:100 t2:110' 't1:100' claude PostToolUse main 110 t2 '' 0
 tk 't1:100' 't1:100' claude PostToolUse main 110 t1 '' 0
-tk 't1:100' 't1:100' claude PostToolUse a1 120 t2 '' 0
+tk 't1:100 t2:120' 't1:100' claude PostToolUse a1 120 t2 '' 0
+tk 't2:120' 't1:100 t2:110' claude SubagentStop a1 120 '' 't2' 1
 tk 't2:120' 't1:100 t2:110' claude Stop main 120 '' 't2' 1
 tk 't3:120' 't1:100' claude Stop main 120 '' 't3' 1
 tk '' 't1:100' claude Stop main 120 '' '' 1

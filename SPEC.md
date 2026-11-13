@@ -50,7 +50,7 @@ A collection of windows inside one tmux server.
 _Avoid_: session
 
 **Background task**:
-A command a Claude agent's main thread left running while it goes on: a `Bash` call with `run_in_background`, or a `Monitor`. It never changes the agent state. A subagent's background tasks are not counted; they keep that subagent listed as a waiting subagent.
+A command a Claude agent or one of its subagents left running while it goes on: a `Bash` call with `run_in_background`, or a `Monitor`. It never changes the agent state. A subagent's background tasks also keep that subagent listed as a waiting subagent.
 _Avoid_: background job, background process, shell
 
 **Agent state**:
@@ -722,7 +722,7 @@ The reporter SHALL track a Claude agent's main-thread state from main-thread eve
 
 ### Claude background task tracking
 
-The reporter SHALL track the background tasks a Claude agent's main thread launches: a `Bash` call with `run_in_background` or a `Monitor` call, added from its `PostToolUse` hook, ignoring calls whose payload has a non-empty `agent_id`. A main-thread `UserPromptSubmit` hook whose prompt is a `<task-notification>` with status `completed`, `failed` or `killed` SHALL remove the task it names. A main-thread `Stop` hook that carries `background_tasks` SHALL replace the list with its `shell` and `monitor` tasks whose status is `running`, leaving out the tasks of listed subagents; a `Stop` without that field MUST leave the list alone. A new session MUST clear the list, and an interrupt MUST NOT. A task that no `Stop` has listed for six hours since its launch MUST be dropped. Reporters handling events of the same pane MUST NOT lose each other's updates. Background tasks MUST NOT change the agent state, the session rollup or notifications.
+The reporter SHALL track the background tasks a Claude agent and its subagents launch: a `Bash` call with `run_in_background` or a `Monitor` call, added from the `PostToolUse` hook of whichever actor made it. A main-thread `UserPromptSubmit` hook whose prompt is a `<task-notification>` with status `completed`, `failed` or `killed` SHALL remove the task it names. A `Stop` or `SubagentStop` hook that carries `background_tasks` SHALL replace the list with its `shell` and `monitor` tasks whose status is `running`; one without that field MUST leave the list alone. A new session MUST clear the list, and an interrupt MUST NOT. A task that no `Stop` or `SubagentStop` has listed for six hours since its launch MUST be dropped. Reporters handling events of the same pane MUST NOT lose each other's updates. Background tasks MUST NOT change the agent state, the session rollup or notifications.
 
 #### Scenario: Task ends while the agent is idle
 
@@ -742,7 +742,7 @@ The reporter SHALL track the background tasks a Claude agent's main thread launc
 #### Scenario: Subagent launch
 
 - **WHEN** a subagent runs `Bash` with `run_in_background`
-- **THEN** the main agent's task list does not change
+- **THEN** the agent's task count grows by one
 
 #### Scenario: Task ends during a turn
 
@@ -1760,7 +1760,7 @@ Clicking a desktop notification, or pressing the next agent key, should show the
 
 ### D11. Background tasks come from the Stop hook
 
-The sidebar shows how many background tasks a Claude agent's main thread left running. A launch is visible: the `PostToolUse` payload carries `tool_input.run_in_background`, `agent_id`, and the task's `backgroundTaskId` in `tool_response`. Claude Code delivers each task's end to the main thread as a `UserPromptSubmit` hook whose `prompt` is a `<task-notification>` with the `<task-id>` and a `<status>`, whether the agent is idle or still working. Every `Stop` and `SubagentStop` payload carries `background_tasks` for the whole session, each with its `id`, `type` (`shell`, `monitor`, `subagent`) and `status`, but no owner. The reporter adds a task at launch, so it shows at once, removes it on its notification, and replaces the whole list from each main-thread `Stop`, which also corrects anything a lost or late update got wrong.
+The sidebar shows how many background tasks a Claude agent and its subagents left running. A launch is visible: the `PostToolUse` payload carries `tool_input.run_in_background`, `agent_id`, and the task's `backgroundTaskId` in `tool_response`. Claude Code delivers each task's end to the main thread as a `UserPromptSubmit` hook whose `prompt` is a `<task-notification>` with the `<task-id>` and a `<status>`, whether the agent is idle or still working. Every `Stop` and `SubagentStop` payload carries `background_tasks` for the whole session, each with its `id`, `type` (`shell`, `monitor`, `subagent`) and `status`, but no owner. The reporter adds a task at launch, so it shows at once, removes it on its notification, and replaces the whole list from each `Stop` and `SubagentStop`, which also corrects anything a lost or late update got wrong. A subagent's task ends without a notification to the main thread, because Claude Code wakes the subagent instead, but the subagent's next `SubagentStop` lists the session's tasks. The count is the session's, not the main thread's alone, because the lists have no owner field.
 
 **Considered options**
 
@@ -1881,12 +1881,11 @@ A subagent, often a fork, can launch a background command and end its turn while
 
 **Considered options**
 
-- **Count a subagent's tasks in the background task indicator.** Rejected: the row would show a task with no subagent, which does not say that a subagent waits.
+- **Count a subagent's tasks in the background task indicator instead.** Rejected: the row would show a task with no subagent, which does not say that a subagent waits. The tasks are counted too, as D11 says, so the row shows both.
 - **Drop the subagent at `SubagentStop`, as before.** Rejected: the sidebar then shows fewer subagents than Claude Code does.
 - **Read the waiting state from the task notification's summary.** Rejected: the summary is prose meant for the model.
 
 **Consequences**
 
-- A subagent's tasks are left out of the main thread's count, because the `Stop` lists have no owner field.
 - A subagent whose task ends without a later `Stop` or `SubagentStop` stays listed until its six-hour expiry.
 - Subagent entries carry their task IDs: `id:state:tasks:time`.

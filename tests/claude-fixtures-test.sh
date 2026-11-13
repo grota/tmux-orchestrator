@@ -65,10 +65,10 @@ assert_eq "$(state)" blocked
 "$HOOK" <"$FIX/elicitation-result.json"
 assert_eq "$(state)" working
 
-# Background Bash and Monitor launches on the main thread are listed without
-# changing the state; foreground tools and a subagent's launches are not.
-# A Stop hook replaces the list with the main thread's running shell and
-# Monitor tasks; a Stop without that list leaves it alone.
+# Background Bash and Monitor launches, a subagent's too, are listed without
+# changing the state; foreground tools are not.  A Stop hook replaces the
+# list with the session's running shell and Monitor tasks; a Stop without
+# that list leaves it alone.
 tasks_n() { tmux -L "$S" show-options -pv -t "$P" @agent_1_tasks_n 2>/dev/null || true; }
 tasks() { tmux -L "$S" show-options -pv -t "$P" @agent_1_tasks 2>/dev/null || true; }
 "$HOOK" <"$FIX/post-tool-foreground.json"
@@ -76,8 +76,8 @@ assert_eq "$(tasks_n)" ''
 "$HOOK" <"$FIX/post-tool-background.json"
 "$HOOK" <"$FIX/post-tool-monitor.json"
 "$HOOK" <"$FIX/subagent-post-tool-background.json"
-assert_eq "$(tasks_n)" 2
-[[ $(tasks) == bgbash1:*' 'toolu_01Erowmonitor:* ]] || fail "task ids: $(tasks)"
+assert_eq "$(tasks_n)" 3
+[[ $(tasks) == bgbash1:*' 'toolu_01Erowmonitor:*' 'toolu_01subagentbg:* ]] || fail "task ids: $(tasks)"
 assert_eq "$(state)" working
 "$HOOK" <"$FIX/stop-background-tasks.json"
 assert_eq "$(state)" done
@@ -130,17 +130,18 @@ assert_eq "$(tasks_n)" ''
 assert_eq "$(state)" working
 
 # A fork that stops while its own background task runs stays listed, idle,
-# and its task is not counted as the main thread's.  Its next stop without a
-# running task of its own removes it.
+# and its task is counted.  Its next stop without a running task of its own
+# removes it, and that stop's list of running tasks replaces the count.
 "$HOOK" <"$FIX/fork-post-tool-background.json"
-assert_eq "$(tasks_n)" ''
+assert_eq "$(tasks_n)" 1
 "$HOOK" <"$FIX/fork-stop-waiting.json"
 [[ " $(subs) " == *' agent-1:idle:forkbg1:'* ]] || fail "waiting fork: $(subs)"
 "$HOOK" <"$FIX/stop-fork-shell.json"
 [[ " $(subs) " == *' agent-1:idle:forkbg1:'* ]] || fail "fork after Stop: $(subs)"
-[[ $(tasks) == bgbash2:* ]] || fail "main tasks: $(tasks)"
+[[ $(tasks) == forkbg1:*' 'bgbash2:* ]] || fail "tasks: $(tasks)"
 "$HOOK" <"$FIX/fork-stop-finished.json"
 [[ " $(subs) " != *' agent-1:'* ]] || fail "finished fork: $(subs)"
+assert_eq "$(tasks_n)" ''
 jq -c '.background_tasks = []' "$FIX/stop-background-tasks.json" | "$HOOK"
 "$HOOK" <"$FIX/prompt-title.json"
 

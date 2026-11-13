@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `window-name` reporter command; `@tmux-orchestrator-window-name` is live.
 - Window names show the agent name of the active pane through `automatic-rename-format`; `@tmux-orchestrator-window-name` is `on`, `force` or `off`.
 - Next agent key: `@tmux-orchestrator-next-agent-key` and `@tmux-orchestrator-next-agent-table` bind a key that goes through all agents, those that are blocked, in error or done first.
-- A Claude Code agent's row shows how many background tasks its main thread has running, as a blue `·` and a count.
+- A Claude Code agent's row shows how many background tasks it and its subagents have running, as a blue `·` and a count.
 - `@tmux-orchestrator-focus-events` option: the plugin turns on tmux's `focus-events` unless it is `off`, and warns when it stays off.
 - Clicking a desktop notification brings a tmux client to the agent.
 - A new `notify-send` notification replaces the agent's previous one while it is still shown.
@@ -60,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A Claude Code agent's background task count drops when a task ends, not at the end of the turn.
-- Background tasks of Claude Code subagents no longer count toward the main thread's tasks.
+- Parallel reports for one pane no longer lose an update when the pane lock is released between two attempts to take it.
 
 - Pressing Esc in a Claude Code agent that has background shells running now sets it to `idle`; it stayed `working`.
 - `claude attach <id>` resolves by the session's short ID before the session ID prefix.
