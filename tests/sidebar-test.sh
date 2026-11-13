@@ -108,12 +108,14 @@ tmux -L "$S" kill-pane -t "$PO"
 # Session rows keep the default switch-client; agent rows carry their pane ID
 # in a user range because tmux's "=" target resolves to the active pane.
 KEYS=$(tmux -L "$S" list-keys -T root MouseDown1Status)
-FMT=$(tmux -L "$S" show-options -gv side-status-format)
+# The session and agent lists live in their own option.
+FMT=$(tmux -L "$S" show-options -gv side-status-format)$(tmux -L "$S" show-options -gv @tmux-orchestrator-lists)
 [[ $KEYS == *'switch-client -t='* ]] || fail 'missing default switch-client'
-[[ $KEYS == *'select #{mouse_status_range}'* ]] || fail 'missing pane selection'
+[[ $KEYS == *'select #{mouse_status_range} #{client_name}'* ]] || fail 'missing pane selection'
 ROW3=$(tmux -L "$S" show-options -gv @tmux-orchestrator-row-3)
 [[ $ROW3 == *'range=user|#{pane_id}:3 '* ]] || fail 'agent rows must carry pane and slot'
-[[ $FMT == *'#{E:@tmux-orchestrator-row-9}'* ]] || fail 'slot rows not expanded in the format'
+[[ $FMT == *'#{E:@tmux-orchestrator-lists}'* ]] || fail 'lists not expanded in the format'
+[[ $(tmux -L "$S" show-options -gv @tmux-orchestrator-lists) == *'#{E:@tmux-orchestrator-row-9}'* ]] || fail 'slot rows not expanded in the lists'
 [[ $FMT == *'range=user|#{pane_id}:+'* ]] || fail 'overflow row must carry its pane'
 [[ $FMT != *'row-10'* ]] || fail 'more than nine slots generated'
 [[ $FMT$ROW3 != *'range=pane|'* ]] || fail 'pane ranges cannot target their pane'
@@ -228,18 +230,22 @@ tmux -L "$S" set-option -g side-status-width 23
 assert_eq "$(row "$PW" | plain | sed -n 2p)" "  $(printf 'é%.0s' {1..10})"
 tmux -L "$S" set-option -g side-status-width 28
 
-# A fixed limit, nowrap and an invalid value, all applied live.
+# nowrap, a length with nowrap, a length with wrap and an invalid length, all
+# applied live.
 report_state "$PW" working refactor-the-login-flow-and-more-words claude sw
+tmux -L "$S" set-option -g @tmux-orchestrator-name-wrap nowrap
+assert_eq "$(row "$PW" | plain | head -1)" "● refactor-the-login-flow-a…"
+assert_eq "$(lines "$PW")" 2
 tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars 12
 assert_eq "$(row "$PW" | plain | head -1)" "● refactor-the…"
 assert_eq "$(lines "$PW")" 2
-tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars nowrap
-assert_eq "$(row "$PW" | plain | head -1)" "● refactor-the-login-flow-a…"
-assert_eq "$(lines "$PW")" 2
+tmux -L "$S" set-option -gu @tmux-orchestrator-name-wrap
+tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars 30
+assert_eq "$(row "$PW" | plain | head -1)" "● refactor-the-login-flow-a"
+assert_eq "$(row "$PW" | plain | sed -n 2p)" "  nd-mo…"
+assert_eq "$(lines "$PW")" 3
 tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars banana
-assert_eq "$(lines "$PW")" 3
-tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars wrap
-assert_eq "$(lines "$PW")" 3
+assert_eq "$(row "$PW" | plain | sed -n 2p)" "  nd-more-words"
 tmux -L "$S" set-option -gu @tmux-orchestrator-name-max-chars
 
 # The focused agent is the active tab of the viewed pane.
@@ -349,20 +355,20 @@ tmux -L "$S" bind-key K run-shell -b '#{@tmux-orchestrator-reporter} gc'
 "$BIN" select keys
 tmux -L "$S" display -p "$FMT" | grep -Fq 'prefix K  gc' || fail 'new binding not listed'
 "$BIN" select keys
-# The options panel shows each live option's value and cycles it on click;
-# opening it closes the keys panel.
+# The options panel shows each option's value under its group and changes it
+# on a click on the value; opening it closes the keys panel.
 "$BIN" select keys
 "$BIN" select opts
 assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-keys)" ''
-# The panel's text without its style markup.
-options_text() { tmux -L "$S" display -p "$FMT" | sed 's/#\[[^]]*\]//g'; }
+# The panel's text without its style markup, one line per #[nl].
+options_text() { tmux -L "$S" display -p "$FMT" | sed 's/#\[nl\]/\n/g; s/#\[[^]]*\]//g'; }
 PANEL=$(options_text)
-for line in 'time         on' 'focus style  underlined' 'terminal     off' 'pause        off' 'window names on'; do
-	[[ $PANEL == *"$line"* ]] || fail "options panel lacks [$line]"
+for line in sidebar 'state time      on' 'focus style     underlined' 'name length     none' 'terminal        off' 'pause           off' 'attention table prefix' 'window names    on'; do
+	grep -Fxq -- "$line" <<<"$PANEL" || fail "options panel lacks [$line]"
 done
 "$BIN" select o:time
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" off
-options_text | grep -Fq 'time         off' || fail 'time line not updated'
+options_text | grep -Fxq 'state time      off' || fail 'time line not updated'
 "$BIN" select o:time
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" on
 "$BIN" select o:focus
@@ -370,20 +376,57 @@ assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-time)" on
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-focus-style)" none
 "$BIN" select o:focus
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-focus-style)" underlined
-tmux -L "$S" set-option -g @tmux-orchestrator-name-max-chars 12
-options_text | grep -Fq 'names        12' || fail 'names line does not show 12'
-"$BIN" select o:names
-assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-name-max-chars)" wrap
+tmux -L "$S" set-option -g @tmux-orchestrator-focus-style banana
+"$BIN" select o:focus
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-focus-style)" underlined
 "$BIN" select o:pause
 assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-notify-paused)" 1
 "$BIN" select o:pause
 assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-notify-paused)" ''
-"$BIN" select keys
-assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-options)" ''
-"$BIN" select keys
+
+# Prompt answers: a valid one is set, an invalid one changes nothing, an empty
+# one goes back to the default.
+answer() { tmux -L "$S" set-option -g @tmux-orchestrator-option-answer "$2"; "$BIN" option-answer "$1"; }
+answer timeout 9
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-notify-timeout)" 9
+answer timeout 0 || true
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-notify-timeout)" 9
+answer timeout ''
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-notify-timeout)" ''
+answer raise 'echo "a b" # c'
+assert_eq "$(tmux -L "$S" show-options -gv @tmux-orchestrator-raise-command)" 'echo "a b" # c'
+answer raise ''
+answer attkey 'M a' || true
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-attention-key)" ''
+
+# An option read at load applies at once: the loader runs again.
+answer attkey M-z
+[[ $(tmux -L "$S" list-keys -T prefix M-z) == *' attention'* ]] || fail 'attention key not bound from the panel'
+answer attkey ''
+tmux -L "$S" list-keys -T prefix M-z >/dev/null 2>&1 && fail 'attention key still bound'
+"$BIN" select o:side
+assert_eq "$(tmux -L "$S" show-options -gv side-status)" right
+"$BIN" select o:side
+assert_eq "$(tmux -L "$S" show-options -gv side-status)" left
+
+# A click on a label opens its description under it and hides the lists; a
+# second click closes it.
+"$BIN" select d:wrap
+PANEL=$(options_text)
+grep -Fxq '  in an ellipsis.' <<<"$PANEL" || fail 'description not shown'
+grep -Fxq 'Sessions' <<<"$PANEL" && fail 'lists shown with a description open'
+# The description wraps at spaces within the width.
+while IFS= read -r line; do
+	((${#line} <= 28)) || fail "description line too long: [$line]"
+done <<<"$PANEL"
+grep -A2 -Fx '  tmux option:' <<<"$PANEL" | tr -d '\n' | grep -Fxq '  tmux option:  @tmux-orchestrator-  name-wrap' || fail 'option name not shown'
+"$BIN" select d:wrap
+options_text | grep -Fxq 'Sessions' || fail 'lists not back after closing the description'
+"$BIN" select d:wrap
+"$BIN" select opts
+assert_eq "$(tmux -L "$S" show-options -gqv @tmux-orchestrator-options-info)" ''
 tmux -L "$S" set-option -gu @tmux-orchestrator-time
 tmux -L "$S" set-option -gu @tmux-orchestrator-focus-style
-tmux -L "$S" set-option -gu @tmux-orchestrator-name-max-chars
 tmux -L "$S" unbind-key N
 tmux -L "$S" unbind-key M
 tmux -L "$S" unbind-key X

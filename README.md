@@ -77,8 +77,10 @@ border to make room, double-click the border to snap it back.
   row renames the agent in Claude Code or OpenCode itself.
 - **Window names** follow the agent in the window's active pane, cut to 20
   characters, and go back to the command when the agent exits.
-- **`≡ options`** opens a panel with the live on/off and choice options. Click
-  a line to switch it. The change lasts until tmux restarts, and reloading
+- **`≡ options`** opens a panel with every option below except OpenCode
+  auto-install. Click a value to change it, cycling through its choices or
+  typing a new one; an empty answer goes back to the default. Click a label to
+  read what the option does. Changes last until tmux restarts, and reloading
   `tmux.conf` brings back the values it sets, so put lasting choices there.
 - **`? keys`**, the last row, lists every key binding the plugin knows about.
 
@@ -121,15 +123,16 @@ Need some quiet? Pause every notification with one command (see
 ## Options
 
 Set options above the line that runs TPM (`run '~/.tmux/plugins/tpm/tpm'`). The
-ones marked _live_ can also be changed later and apply at once, most of them
-from the sidebar's `≡ options` panel.
+ones marked _live_ can also be changed later and apply at once. All of them can
+be changed from the sidebar's `≡ options` panel.
 
 | Option                                     | Default      | Description                                                                                    |
 | ------------------------------------------ | ------------ | ---------------------------------------------------------------------------------------------- |
 | `@tmux-orchestrator-side`                  | `left`       | Sidebar side: `left` or `right`.                                                               |
 | `@tmux-orchestrator-width`                 | `28`         | Sidebar width in columns.                                                                      |
 | `@tmux-orchestrator-toggle-key`            | `O`          | Key, after the prefix, that shows and hides the sidebar.                                       |
-| `@tmux-orchestrator-name-max-chars`        | `wrap`       | _Live._ `wrap` long names over up to four lines, `nowrap` to cut them, or a maximum length.    |
+| `@tmux-orchestrator-name-wrap`             | `wrap`       | _Live._ `wrap` long names over up to four lines, or `nowrap` to cut them to one line.          |
+| `@tmux-orchestrator-name-max-chars`        | unset        | _Live._ Cut names to this many characters first; unset for no limit.                           |
 | `@tmux-orchestrator-focus-style`           | `underlined` | _Live._ How the agent you are viewing is marked: `underlined`, `bold` or `none`.               |
 | `@tmux-orchestrator-time`                  | `on`         | _Live._ `off` hides the state time.                                                            |
 | `@tmux-orchestrator-time-on-view`          | `keep`       | _Live._ `reset` restarts a `done` agent's time when you view it.                               |

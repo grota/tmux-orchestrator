@@ -86,7 +86,7 @@ A part of the sidebar, opened and closed by a click, that lists the configurable
 _Avoid_: help, cheatsheet, legend
 
 **Options panel**:
-A part of the sidebar, opened and closed by a click, that shows the live options with their current values and changes one with a click until tmux restarts.
+A part of the sidebar, opened and closed by a click, that shows the plugin's options with their current values, explains one when its label is clicked, and changes one when its value is clicked, until tmux restarts.
 _Avoid_: settings, preferences, config panel
 
 ## 2. Agent state
@@ -954,32 +954,37 @@ The sidebar SHALL show at most nine agent rows per pane. Agents beyond the ninth
 
 ### Agent name length
 
-The sidebar SHALL fit agent names according to `@tmux-orchestrator-name-max-chars`: unset or `wrap` wraps the name over up to four lines, a positive number `N` shows one line cut at `N` characters or the available width, whichever is shorter, and `nowrap` shows one line cut to the available width. A cut name MUST end in `…`.
+The sidebar SHALL fit agent names according to two options. `@tmux-orchestrator-name-wrap` unset or `wrap` wraps the name over up to four lines, and `nowrap` shows one line cut to the available width. `@tmux-orchestrator-name-max-chars` set to a positive number `N` first cuts the name at `N` characters; with `nowrap` the line is cut at `N` or the available width, whichever is shorter, and with `wrap` the cut name wraps. Any other value of `@tmux-orchestrator-name-max-chars` sets no limit. A cut name MUST end in `…`.
 
 #### Scenario: Short name with wrapping
 
-- **WHEN** the option is unset and the agent name fits on one line
+- **WHEN** both options are unset and the agent name fits on one line
 - **THEN** the name takes one line and no empty line follows it
 
 #### Scenario: Long name with wrapping
 
-- **WHEN** the option is `wrap` and the agent name needs two lines at the current width
+- **WHEN** wrapping is on and the agent name needs two lines at the current width
 - **THEN** the name continues on a second line indented two columns, under its first character
 
 #### Scenario: Name longer than four lines
 
-- **WHEN** the option is `wrap` and the agent name needs more than four lines
+- **WHEN** wrapping is on and the agent name needs more than four lines
 - **THEN** four lines are shown and the fourth ends in `…`
 
 #### Scenario: Fixed character limit
 
-- **WHEN** the option is `12` and the agent name is `refactor-the-login-flow`
+- **WHEN** the wrap option is `nowrap`, the length is `12` and the agent name is `refactor-the-login-flow`
 - **THEN** one line shows the first characters of the name cut to 12 characters ending in `…`
 
 #### Scenario: No wrapping
 
-- **WHEN** the option is `nowrap` and the agent name does not fit
+- **WHEN** the wrap option is `nowrap`, the length is unset and the agent name does not fit
 - **THEN** one line shows the name cut to the sidebar width, ending in `…`
+
+#### Scenario: Length with wrapping
+
+- **WHEN** wrapping is on, the length is `30` and the agent name is `refactor-the-login-flow-and-more-words`
+- **THEN** the name is cut to `refactor-the-login-flow-and-mo…` and wraps over two lines at 28 columns
 
 #### Scenario: Resize while wrapped
 
@@ -1082,20 +1087,31 @@ The sidebar SHALL end with a right-aligned, clickable `? keys` row that opens an
 
 ### Options panel
 
-The sidebar SHALL show a clickable `≡ options` entry left of `? keys` that opens and closes the options panel for all clients. Opening one of the two panels MUST close the other. The panel SHALL list these options with their current value, the default when unset:
+The sidebar SHALL show a clickable `≡ options` entry left of `? keys` that opens and closes the options panel for all clients. Opening one of the two panels MUST close the other. The panel SHALL list the options of `lib/options-panel` under group headings, each on a line with its label and its current value, `none` or the default when unset:
 
-| Line | Option | Values in click order |
-|---|---|---|
-| `time` | `@tmux-orchestrator-time` | `on`, `off` |
-| `time on view` | `@tmux-orchestrator-time-on-view` | `keep`, `reset` |
-| `names` | `@tmux-orchestrator-name-max-chars` | `wrap`, `nowrap` |
-| `focus style` | `@tmux-orchestrator-focus-style` | `underlined`, `bold`, `none` |
-| `desktop` | `@tmux-orchestrator-notify-desktop` | `on`, `off` |
-| `terminal` | `@tmux-orchestrator-notify-terminal` | `off`, `on` |
-| `pause` | `@tmux-orchestrator-notify-paused` | `off`, `on` |
-| `window names` | `@tmux-orchestrator-window-name` | `on`, `force`, `off` |
+| Group | Line | Option `@tmux-orchestrator-…` | Click on the value |
+|---|---|---|---|
+| sidebar | `side` | `side` | `left`, `right` |
+| sidebar | `width` | `width` | prompt, a number of at least 10 |
+| sidebar | `state time` | `time` | `on`, `off` |
+| sidebar | `time on view` | `time-on-view` | `keep`, `reset` |
+| sidebar | `names` | `name-wrap` | `wrap`, `nowrap` |
+| sidebar | `name length` | `name-max-chars` | prompt, a number of at least 1 |
+| sidebar | `focus style` | `focus-style` | `underlined`, `bold`, `none` |
+| notifications | `desktop` | `notify-desktop` | `on`, `off` |
+| notifications | `terminal` | `notify-terminal` | `off`, `on` |
+| notifications | `pause` | `notify-paused` | `off`, `on` |
+| notifications | `timeout` | `notify-timeout` | prompt, a number of at least 1 |
+| notifications | `raise command` | `raise-command` | prompt, any text |
+| keys | `toggle key` | `toggle-key` | prompt, one key name |
+| keys | `attention key` | `attention-key` | prompt, one key name |
+| keys | `attention table` | `attention-table` | prompt, any text |
+| tmux | `window names` | `window-name` | `on`, `force`, `off` |
+| tmux | `focus events` | `focus-events` | `on`, `off` |
 
-Clicking a line SHALL set the option's next value in the global tmux options, and the change SHALL apply at once. A value outside the list, such as a number of characters for `names`, MUST show as it is and go to the first value on click. The panel MUST NOT write any file: a reload of the tmux configuration or a tmux restart brings back the configured values.
+Clicking a value with a list SHALL set the option's next value; a value outside the list MUST go to the first value. Clicking a value with a prompt SHALL ask the clicking client for a new value, prefilled with the current one: an empty answer MUST unset the option, and an answer that is not valid MUST change nothing and show the reason. The answer MUST reach the option unchanged, like rename answers. Every change SHALL apply at once: an option read only at plugin load SHALL make the plugin loader run again. The panel MUST NOT write any file: a reload of the tmux configuration or a tmux restart brings back the configured values.
+
+Clicking a label SHALL open that option's description under its line, with the underlying tmux option, and close the one open before; clicking it again SHALL close it. While a description is open, the sidebar MUST hide the session and agent lists, and the description MUST wrap at spaces to the current sidebar width, following a border drag.
 
 #### Scenario: Open the options panel
 
@@ -1104,18 +1120,38 @@ Clicking a line SHALL set the option's next value in the global tmux options, an
 
 #### Scenario: Toggle a boolean
 
-- **WHEN** `@tmux-orchestrator-time` is unset and the user clicks the `time` line
+- **WHEN** `@tmux-orchestrator-time` is unset and the user clicks the value of the `state time` line
 - **THEN** the option becomes `off`, the line shows `off` and the state time disappears
 
 #### Scenario: Cycle a list
 
-- **WHEN** the window names line shows `force` and the user clicks it
+- **WHEN** the window names value is `force` and the user clicks it
 - **THEN** the option becomes `off` and window names show the user's format again, without reloading the plugin
 
 #### Scenario: Value outside the list
 
-- **WHEN** `@tmux-orchestrator-name-max-chars` is `12` and the user clicks the `names` line
-- **THEN** the line showed `12` and the option becomes `wrap`
+- **WHEN** `@tmux-orchestrator-focus-style` is `banana` and the user clicks its value
+- **THEN** the line showed `banana` and the option becomes `underlined`
+
+#### Scenario: Prompt
+
+- **WHEN** the user clicks the timeout value and answers `9`
+- **THEN** `@tmux-orchestrator-notify-timeout` is `9`
+
+#### Scenario: Invalid answer
+
+- **WHEN** the user answers `5` to the width prompt
+- **THEN** the width stays as it was and tmux shows that it must be at least 10
+
+#### Scenario: Empty answer
+
+- **WHEN** the user clears the attention key prompt and presses Enter
+- **THEN** the option is unset, the plugin loader runs again and the attention key is no longer bound
+
+#### Scenario: Description
+
+- **WHEN** the user clicks the `names` label
+- **THEN** the session and agent lists are hidden, the description of `names` shows under its line wrapped to the sidebar width, followed by `@tmux-orchestrator-name-wrap`, and a second click brings the lists back
 
 #### Scenario: Restart
 
@@ -1787,6 +1823,26 @@ The options panel lets the user change live options with a click. A click sets t
 
 **Consequences**
 
-- Options read only at plugin load (side, width, keys, focus events, OpenCode auto-install) are not in the panel. `window-name` was made live for it: the reporter's `window-name` command applies it, and the plugin load calls the same command.
-- Each line is a `range=user|o:<option>` range, so option codes stay within tmux's 15-byte limit for the range argument.
+- Options read only at plugin load (side, width, keys, focus events) apply by running the plugin loader again, which is safe to repeat; the loader's own rules, such as never overwriting a user's key binding, apply unchanged. `window-name` is applied by the reporter's `window-name` command, which the plugin load also calls. OpenCode auto-install is not in the panel: turning it off only stops future links.
+- The panel's lines come from `lib/options-panel`, which both the plugin loader (for the format) and the reporter (for clicks and descriptions) read.
+- A label is a `range=user|d:<code>` range and a value a `range=user|o:<code>` range, so codes stay within tmux's 15-byte limit for the range argument. Clicks pass the client name, which a prompt needs.
+- A double click is avoided for descriptions: tmux delivers its two single clicks first, which would change the value twice.
 - Values are read in the sidebar format itself, so a click shows on the next redraw without the reporter writing the panel.
+
+### D16. Option descriptions wrap at spaces in the format
+
+An open option description wraps live in the sidebar format, like agent names (D8), but at spaces. Line `K` is read from `@tmux-orchestrator-info-l<K>` and the text left after it from `@tmux-orchestrator-info-r<K>`. The rest removes the longest start of the text that fits the width and ends at a space or at the end (`^.{1,W}( |$)`), or the first `W` characters of a word longer than the line (`[^ ]{W}`). The line is the text cut to its length minus the rest's length, without a trailing space. Each rest reads the previous one with `#{E:}`, so the format grows linearly with the number of lines.
+
+**Considered options**
+
+- **Pre-wrapped descriptions at 28 columns.** Rejected: they would not use a wider sidebar and would be cut on a narrower one.
+- **The reporter wraps the text when the description opens.** Rejected: a border drag would leave it wrapped to the old width, as D8 explains for names.
+- **A popup.** Rejected: it covers the pane the user is working in, while the sidebar can make room by hiding its lists.
+- **Take the line from a regex capture group.** Rejected: tmux's regex returned a shorter capture than the overall match, cutting lines after a comma.
+- **Nest each rest inside the next.** Rejected: every step uses the text three times, so the format grows exponentially and exceeds tmux's command size.
+
+**Consequences**
+
+- Descriptions show at most 12 lines.
+- The option name goes on fixed lines under the description, `@tmux-orchestrator-` then the rest, because wrapping would cut it mid-word.
+- `name-wrap` and `name-max-chars` are separate options: cutting the name to `N` characters happens before wrapping, so the wrapped lines read the cut name.

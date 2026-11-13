@@ -94,7 +94,8 @@ while IFS= read -r line; do
 	agent_row=*) FMT_AGENT_ROW=${line#agent_row=} ;;
 	more_row=*) FMT_MORE_ROW=${line#more_row=} ;;
 	layout=*) FMT_LAYOUT=${line#layout=} ;;
-	options=*) FMT_OPTIONS=${line#options=} ;;
+	lists=*) FMT_LISTS=${line#lists=} ;;
+	src=*) FMT_SRC=${line#src=} ;;
 	esac
 done <"$CURRENT_DIR/lib/sidebar-format"
 
@@ -128,6 +129,7 @@ agent_row=${FMT_AGENT_ROW/\{NAME_FIRST\}/"$FMT_NAME_FIRST"}
 agent_row=${agent_row/\{NAME_MORE\}/"$name_more"}
 agent_row=${agent_row//\{EMPH\}/"$FMT_EMPH"}
 agent_row=${agent_row//\{NOWRAP\}/"$FMT_NOWRAP"}
+agent_row=${agent_row//\{SRC\}/"$FMT_SRC"}
 agent_row=${agent_row//\{FIXED\}/"$FMT_FIXED"}
 agent_row=${agent_row//\{FOCUS\}/"$FMT_FOCUS"}
 agent_row=${agent_row//\{NW1\}/"$FMT_NW1"}
@@ -142,16 +144,55 @@ for ((slot = 1; slot <= VISIBLE_SLOTS; slot++)); do
 	"${TMUX_CMD[@]}" set-option -g "@tmux-orchestrator-row-$slot" "$(expand_icons "${agent_row//\{I\}/"$slot"}")"
 	agent_rows+="#{E:@tmux-orchestrator-row-$slot}"
 done
-format=${FMT_LAYOUT/\{AGENT_ROWS\}/"$agent_rows"}
-format=${format/\{MORE_ROW\}/"$FMT_MORE_ROW"}
-"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-options-panel "$FMT_OPTIONS"
-"${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$format")"
+lists=${FMT_LISTS/\{AGENT_ROWS\}/"$agent_rows"}
+lists=${lists/\{MORE_ROW\}/"$FMT_MORE_ROW"}
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-lists "$(expand_icons "$lists")"
+
+# The options panel, one line per entry of lib/options-panel (SPEC.md D15).
+# Clicking the label (d:<code>) opens its description under it, clicking the
+# value (o:<code>) changes it.
+panel='' group=''
+while IFS='|' read -r code grp label option default values load help; do
+	[[ -z $code || $code == '#'* ]] && continue
+	if [[ $grp != "$group" ]]; then
+		group=$grp
+		panel+="#[bold]$grp#[default]#[nl]"
+	fi
+	if [[ $code == pause ]]; then
+		value='#{?#{==:#{@tmux-orchestrator-notify-paused},1},on,off}'
+	else
+		value="#{?@tmux-orchestrator-$option,#{@tmux-orchestrator-$option},${default:-none}}"
+	fi
+	open="#{==:#{@tmux-orchestrator-options-info},$code}"
+	panel+="#[range=user|d:$code]#{?$open,#[underscore],}$(printf '%-15s' "$label")#[nounderscore norange] "
+	panel+="#[range=user|o:$code]#[bold]#{=/#{e|-:#{side-status-width},17}/…:$value}#[norange default]#[nl]"
+	# The option name goes on fixed lines: wrapping would cut it mid-word.
+	panel+="#{?$open,#{E:@tmux-orchestrator-info-lines}  #[fg=colour8]tmux option:#[nl]  @tmux-orchestrator-#[nl]  $option#[default]#[nl],}"
+done <"$CURRENT_DIR/lib/options-panel"
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-options-panel "$panel"
+
+# The open description wraps live at word boundaries, like agent names follow
+# the width (SPEC.md D8).  Line K is the text up to the last space that fits,
+# or a hard cut for a longer word; the rest goes on in @...-info-r<K>.  Each
+# rest is its own option read with E:, so the format grows linearly.
+INFO_LINES=12
+width_expr='#{e|-:#{side-status-width},3}'
+rest_expr='#{@tmux-orchestrator-info-text}'
+info_lines=''
+for ((k = 1; k <= INFO_LINES; k++)); do
+	"${TMUX_CMD[@]}" set-option -g "@tmux-orchestrator-info-r$k" "#{s/^(.{1#,$width_expr#}( |\$)|[^ ]{$width_expr#})//:$rest_expr}"
+	"${TMUX_CMD[@]}" set-option -g "@tmux-orchestrator-info-l$k" "#{s/ \$//:#{=/#{e|-:#{n:$rest_expr},#{n:#{E:@tmux-orchestrator-info-r$k}}}:$rest_expr}}"
+	info_lines+="#{?#{E:@tmux-orchestrator-info-l$k},  #[fg=colour8]#{E:@tmux-orchestrator-info-l$k}#[default]#[nl],}"
+	rest_expr="#{E:@tmux-orchestrator-info-r$k}"
+done
+"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-info-lines "$info_lines"
+"${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$FMT_LAYOUT")"
 
 # Session rows keep the default switch-client -t= behaviour.  Agent rows use a
 # user range that carries the pane ID: tmux's special mouse target (=) resolves
 # to the active pane for side-status pane ranges, so it cannot select the row.
 # The reporter receives the ID and executes select-window/select-pane itself.
-CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{==:#{mouse_status_range},window}' 'switch-client -t= ; select-window -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session},#{!=:#{mouse_status_range},window}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range}\"'"
+CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{==:#{mouse_status_range},window}' 'switch-client -t= ; select-window -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session},#{!=:#{mouse_status_range},window}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range} #{client_name}\"'"
 "${TMUX_CMD[@]}" bind-key -n MouseDown1Status "$CLICK"
 
 # A double click renames: the first click has already switched to the session,

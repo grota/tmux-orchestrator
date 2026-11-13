@@ -1194,7 +1194,7 @@ s.close()
 
 # ROW is a sidebar range: %P:<slot>, %P:+ (overflow) or a bare pane target.
 select_agent() {
-	local row=${1-} pane slot sid
+	local row=${1-} client=${2-} pane slot sid
 	[[ -n $row ]] || return 0
 	case "$row" in
 	keys)
@@ -1206,7 +1206,11 @@ select_agent() {
 		return 0
 		;;
 	o:*)
-		cycle_option "${row#o:}"
+		change_option "${row#o:}" "$client"
+		return 0
+		;;
+	d:*)
+		toggle_option_info "${row#d:}"
 		return 0
 		;;
 	esac
@@ -1392,7 +1396,7 @@ toggle_keys() {
 		list=$(keys_list)
 		[[ -n $list ]] || list='no key bindings'
 		tmux_ok set-option -g @tmux-orchestrator-keys-list "#[fg=colour8]${list//$'\n'/#[nl]}#[default]#[nl]"
-		tmux_ok set-option -g @tmux-orchestrator-keys 1 \; set-option -gu @tmux-orchestrator-options
+		tmux_ok set-option -g @tmux-orchestrator-keys 1 \; set-option -gu @tmux-orchestrator-options \; set-option -gu @tmux-orchestrator-options-info
 	fi
 	refresh_clients
 }
@@ -1400,44 +1404,107 @@ toggle_keys() {
 # Open or close the options panel for every client; it closes the keys panel.
 toggle_options() {
 	if [[ $(get_global @tmux-orchestrator-options) == 1 ]]; then
-		tmux_ok set-option -gu @tmux-orchestrator-options
+		tmux_ok set-option -gu @tmux-orchestrator-options \; set-option -gu @tmux-orchestrator-options-info
 	else
 		tmux_ok set-option -g @tmux-orchestrator-options 1 \; set-option -gu @tmux-orchestrator-keys
 	fi
 	refresh_clients
 }
 
-# Set the options panel line CODE's option to its next value (SPEC.md D15).
-# The first value is the default; a value outside the list goes to it.
-cycle_option() {
-	local code=$1 option values current next='' value found=0
-	case "$code" in
-	time) option=time values='on off' ;;
-	view) option=time-on-view values='keep reset' ;;
-	names) option=name-max-chars values='wrap nowrap' ;;
-	focus) option=focus-style values='underlined bold none' ;;
-	desktop) option=notify-desktop values='on off' ;;
-	terminal) option=notify-terminal values='off on' ;;
-	pause) option=notify-paused values='off on' ;;
-	window) option=window-name values='on force off' ;;
-	*) return 0 ;;
-	esac
-	option=@tmux-orchestrator-$option
-	current=$(get_global "$option")
+# Read the lib/options-panel entry CODE into OPT_* globals; fails when there is
+# none.
+OPT_LABEL='' OPT_NAME='' OPT_DEFAULT='' OPT_VALUES='' OPT_LOAD='' OPT_HELP=''
+option_entry() {
+	local code grp label option default values load help
+	while IFS='|' read -r code grp label option default values load help; do
+		[[ $code == "$1" ]] || continue
+		OPT_LABEL=$label OPT_NAME=@tmux-orchestrator-$option OPT_DEFAULT=$default
+		OPT_VALUES=$values OPT_LOAD=$load OPT_HELP=$help
+		return 0
+	done <"$ROOT_DIR/lib/options-panel"
+	return 1
+}
+
+# Open the description of options panel line CODE under it, or close it when
+# it is already open.  Only one is open at a time.
+toggle_option_info() {
+	option_entry "$1" || return 0
+	if [[ $(get_global @tmux-orchestrator-options-info) == "$1" ]]; then
+		tmux_ok set-option -gu @tmux-orchestrator-options-info
+	else
+		tmux_ok set-option -g @tmux-orchestrator-info-text "$(escape_hash "$OPT_HELP")"
+		tmux_ok set-option -g @tmux-orchestrator-options-info "$1"
+	fi
+	refresh_clients
+}
+
+# Change the option of options panel line CODE (SPEC.md D15): a list of values
+# goes to the next one, and a value outside the list to the first; a prompt
+# asks CLIENT for the new value.
+change_option() {
+	local code=$1 client=${2-} current next='' value found=0 cmd
+	option_entry "$code" || return 0
+	current=$(get_global "$OPT_NAME")
+	if [[ $OPT_VALUES == '#'* ]]; then
+		cmd="'$SELF_DIR/tmux-orchestrator' option-answer $code $(printf '%q' "$client")"
+		[[ -n ${TMUX_SOCKET:-} ]] && cmd="TMUX_SOCKET=$(printf '%q' "$TMUX_SOCKET") $cmd"
+		tmux_ok command-prompt -b -l ${client:+-t "$client"} -I "$(escape_hash "$current")" -p "$OPT_LABEL (empty for default):" \
+			"set-option -g @tmux-orchestrator-option-answer \"%%%\" ; run-shell -b \"$cmd\""
+		return 0
+	fi
 	# The pause is stored as 1 or unset, like notify pause and resume.
 	[[ $code == pause ]] && { [[ $current == 1 ]] && current=on || current=off; }
-	[[ -n $current ]] || current=${values%% *}
-	for value in $values; do
+	[[ -n $current ]] || current=$OPT_DEFAULT
+	for value in $OPT_VALUES; do
 		((found)) && { next=$value; break; }
 		[[ $value == "$current" ]] && found=1
 	done
-	[[ -n $next ]] || next=${values%% *}
+	[[ -n $next ]] || next=${OPT_VALUES%% *}
 	if [[ $code == pause ]]; then
-		if [[ $next == on ]]; then tmux_ok set-option -g "$option" 1; else tmux_ok set-option -gu "$option"; fi
+		if [[ $next == on ]]; then tmux_ok set-option -g "$OPT_NAME" 1; else tmux_ok set-option -gu "$OPT_NAME"; fi
 	else
-		tmux_ok set-option -g "$option" "$next"
+		tmux_ok set-option -g "$OPT_NAME" "$next"
 	fi
-	[[ $code == window ]] && apply_window_name
+	option_changed "$code"
+}
+
+# The answer of an option prompt, left in @tmux-orchestrator-option-answer.
+# An empty answer unsets the option; an invalid one changes nothing.
+option_answer() {
+	local code=$1 client=${2-} answer min error=''
+	answer=$(get_global @tmux-orchestrator-option-answer)
+	tmux_ok set-option -gu @tmux-orchestrator-option-answer
+	option_entry "$code" || return 0
+	if [[ -z $answer ]]; then
+		tmux_ok set-option -gu "$OPT_NAME"
+		option_changed "$code"
+		return 0
+	fi
+	case "$OPT_VALUES" in
+	'#number:'*)
+		min=${OPT_VALUES#'#number:'}
+		[[ $answer =~ ^[0-9]+$ ]] && ((10#$answer >= min)) || error="$OPT_LABEL must be a whole number of at least $min"
+		;;
+	'#key')
+		[[ $answer != *[[:space:]]* ]] || error="$OPT_LABEL must be one tmux key name, such as M-a or O"
+		;;
+	esac
+	if [[ -n $error ]]; then
+		tmux_ok display-message ${client:+-c "$client"} -d 5000 "tmux-orchestrator: $(escape_hash "$error")"
+		return 1
+	fi
+	tmux_ok set-option -g "$OPT_NAME" "$answer"
+	option_changed "$code"
+}
+
+# Apply a changed option: one read only at load re-runs the plugin loader,
+# which is safe to run again; window names are applied directly.
+option_changed() {
+	if [[ $OPT_LOAD == 1 ]]; then
+		"$ROOT_DIR/tmux-orchestrator.tmux" >/dev/null 2>&1 || true
+	elif [[ $1 == window ]]; then
+		apply_window_name
+	fi
 	refresh_clients
 }
 
@@ -1633,6 +1700,7 @@ usage: tmux-orchestrator <command> [options]
   rename ROW NAME  rename the agent on a sidebar row (%P:<slot>) in the agent
   rename-prompt ROW CLIENT  ask CLIENT for a new name for that agent
   window-name   apply @tmux-orchestrator-window-name to automatic-rename-format
+  option-answer CODE  apply the answer of an options panel prompt
   reconcile     rebuild session summaries
   gc            drop agents of dead panes and reconcile
   toggle        enable or disable the sidebar
@@ -1803,7 +1871,8 @@ main() {
 		refresh_name "$pane" "$sid" "$bin"
 		;;
 	focus) focus_agents ;;
-	select) select_agent "${1-}" ;;
+	select) select_agent "${1-}" "${2-}" ;;
+	option-answer) option_answer "${1-}" "${2-}" ;;
 	window-name) apply_window_name ;;
 	rename-prompt) rename_prompt "${1-}" "${2-}" ;;
 	rename)

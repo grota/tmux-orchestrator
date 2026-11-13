@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Options panel, opened from the `≡ options` sidebar row, that switches live options with a click until tmux restarts.
+- Options panel, opened from the `≡ options` sidebar row: clicking a value changes the option until tmux restarts, and clicking a label shows its description.
+- `@tmux-orchestrator-name-wrap` option: `wrap` (default) or `nowrap`.
+- `option-answer` reporter command.
 - `window-name` reporter command; `@tmux-orchestrator-window-name` is live.
 - Window names show the agent name of the active pane through `automatic-rename-format`; `@tmux-orchestrator-window-name` is `on`, `force` or `off`.
 - Attention key: `@tmux-orchestrator-attention-key` and `@tmux-orchestrator-attention-table` bind a key that goes through all agents, those that are blocked, in error or done first.
@@ -22,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `focus-agent` command.
 - `@tmux-orchestrator-opencode-auto-install` option, `on` by default.
 - `@tmux-orchestrator-notify-desktop` and `@tmux-orchestrator-notify-terminal` options; terminal is `off` by default.
-- `@tmux-orchestrator-name-max-chars` option: `wrap` (default), `nowrap` or a character limit.
+- `@tmux-orchestrator-name-max-chars` option: a character limit applied before wrapping.
 - Keys panel, opened from the `? keys` sidebar row, listing the bindings that call the reporter.
 - The focused agent's name is emphasised in the sidebar.
 - `@tmux-orchestrator-focus-style` option: `underlined` (default), `bold` or `none`.
