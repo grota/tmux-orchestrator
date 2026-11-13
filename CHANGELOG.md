@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Window names show the agent name of the active pane through `automatic-rename-format`; `@tmux-orchestrator-window-name` set to `off` turns this off.
+- Window names show the agent name of the active pane through `automatic-rename-format`; `@tmux-orchestrator-window-name` is `on`, `force` or `off`.
 - Attention key: `@tmux-orchestrator-attention-key` and `@tmux-orchestrator-attention-table` bind a key that goes through all agents, those that are blocked, in error or done first.
 - A Claude Code agent's row shows how many background tasks its main thread has running, as a blue `·` and a count.
 - `@tmux-orchestrator-focus-events` option: the plugin turns on tmux's `focus-events` unless it is `off`, and warns when it stays off.

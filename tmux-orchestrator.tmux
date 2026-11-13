@@ -71,23 +71,28 @@ elif [[ $("${TMUX_CMD[@]}" show-options -gv focus-events 2>/dev/null) != on ]]; 
 	"${TMUX_CMD[@]}" display-message "tmux-orchestrator: focus-events is off, so agents shown in a background terminal window do not notify" >/dev/null 2>&1 || true
 fi
 
-# Window names show the agent name of the active pane (SPEC.md D14): every
-# #{pane_current_command} in the global automatic-rename-format becomes
-# WINDOW_NAME, which falls back to it.  The replacement applied last is
-# recorded and turned back first, so a reload never wraps it twice and an
-# upgrade swaps it for the current one.
-COMMAND_TOKEN='#{pane_current_command}'
-WINDOW_NAME='#{?@agent_active_name,#{=20:@agent_active_name},#{pane_current_command}}'
+# Window names show the agent name of the active pane (SPEC.md D14).  `on`
+# replaces every #{pane_current_command} in the global automatic-rename-format,
+# `force` puts the agent name in front of the whole format, `off` leaves it.
+# The user's format and the one set from it are recorded: while the format is
+# still the one set, the change starts again from the user's, so a reload
+# never applies it twice.  A format set by anyone else is the user's.
+AGENT_NAME='#{=20:@agent_active_name}'
 window_name=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name 2>/dev/null || true)
-applied=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name-applied 2>/dev/null || true)
 rename_format=$("${TMUX_CMD[@]}" show-options -gwv automatic-rename-format 2>/dev/null || true)
-new_format=$rename_format
-[[ -n $applied ]] && new_format=${new_format//"$applied"/"$COMMAND_TOKEN"}
-if [[ $window_name != off ]]; then
-	new_format=${new_format//"$COMMAND_TOKEN"/"$WINDOW_NAME"}
-	"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-window-name-applied "$WINDOW_NAME"
+user_format=$rename_format
+if [[ $rename_format == "$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name-set 2>/dev/null || true)" ]]; then
+	user_format=$("${TMUX_CMD[@]}" show-options -gv @tmux-orchestrator-window-name-user 2>/dev/null || true)
+fi
+case $window_name in
+off) new_format=$user_format ;;
+force) new_format="#{?@agent_active_name,$AGENT_NAME,$user_format}" ;;
+*) new_format=${user_format//'#{pane_current_command}'/"#{?@agent_active_name,$AGENT_NAME,#{pane_current_command}}"} ;;
+esac
+if [[ $new_format == "$user_format" ]]; then
+	"${TMUX_CMD[@]}" set-option -gu @tmux-orchestrator-window-name-user \; set-option -gu @tmux-orchestrator-window-name-set
 else
-	"${TMUX_CMD[@]}" set-option -gu @tmux-orchestrator-window-name-applied
+	"${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-window-name-user "$user_format" \; set-option -g @tmux-orchestrator-window-name-set "$new_format"
 fi
 [[ $new_format == "$rename_format" ]] || "${TMUX_CMD[@]}" set-option -gw automatic-rename-format "$new_format"
 

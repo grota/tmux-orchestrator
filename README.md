@@ -129,7 +129,7 @@ ones marked _live_ can also be changed later and apply at once.
 | `@tmux-orchestrator-focus-style`           | `underlined` | _Live._ How the agent you are viewing is marked: `underlined`, `bold` or `none`.               |
 | `@tmux-orchestrator-time`                  | `on`         | _Live._ `off` hides the state time.                                                            |
 | `@tmux-orchestrator-time-on-view`          | `keep`       | _Live._ `reset` restarts a `done` agent's time when you view it.                               |
-| `@tmux-orchestrator-window-name`           | `on`         | `off` keeps agent names out of window names.                                                   |
+| `@tmux-orchestrator-window-name`           | `on`         | `off` keeps agent names out of windows; `force` names them when your format lacks the command. |
 | `@tmux-orchestrator-attention-key`         | unset        | Key that goes to the next agent needing you. Not bound unless set.                             |
 | `@tmux-orchestrator-attention-table`       | `prefix`     | Key table of the attention key; `root` binds it without the prefix.                            |
 | `@tmux-orchestrator-notify-desktop`        | `on`         | _Live._ Desktop notifications (`notify-send` or `osascript`).                                  |

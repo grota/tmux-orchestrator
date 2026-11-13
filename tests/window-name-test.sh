@@ -78,10 +78,34 @@ tmux -L "$S" set-option -gw automatic-rename-format '#{b:pane_current_path}'
 load
 assert_eq "$(format)" '#{b:pane_current_path}'
 
-# An earlier replacement is swapped for the current one.
-tmux -L "$S" set-option -gw automatic-rename-format '#{?@old,#{@old},#{pane_current_command}}!'
-tmux -L "$S" set-option -g @tmux-orchestrator-window-name-applied '#{?@old,#{@old},#{pane_current_command}}'
+# force puts the agent name in front of a format without the command.
+tmux -L "$S" set-option -g @tmux-orchestrator-window-name force
 load
-assert_eq "$(format)" "$WRAP!"
+assert_eq "$(format)" '#{?@agent_active_name,#{=20:@agent_active_name},#{b:pane_current_path}}'
+load
+assert_eq "$(format)" '#{?@agent_active_name,#{=20:@agent_active_name},#{b:pane_current_path}}'
+report_state "$P0" working forced claude sid-2
+assert_eq "$(name_of "$P0")" forced
+tmux -L "$S" copy-mode -t "$P0"
+assert_eq "$(name_of "$P0")" forced
+tmux -L "$S" send-keys -t "$P0" -X cancel
+
+# Switching mode starts again from the user's format.
+tmux -L "$S" set-option -g @tmux-orchestrator-window-name on
+tmux -L "$S" set-option -gw automatic-rename-format "$DEFAULT"
+load
+tmux -L "$S" set-option -g @tmux-orchestrator-window-name force
+load
+assert_eq "$(format)" "#{?@agent_active_name,#{=20:@agent_active_name},$DEFAULT}"
+tmux -L "$S" set-option -g @tmux-orchestrator-window-name off
+load
+assert_eq "$(format)" "$DEFAULT"
+
+# A format the user sets after a load is the user's.
+tmux -L "$S" set-option -gu @tmux-orchestrator-window-name
+load
+tmux -L "$S" set-option -gw automatic-rename-format "[$TOKEN]"
+load
+assert_eq "$(format)" "[$WRAP]"
 
 printf 'window-name-test: ok\n'
