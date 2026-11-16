@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A Claude Code agent that watches an artifact no longer shows the watch as a background task.
 - A Claude Code agent's background task count drops when a task ends, not at the end of the turn.
 - Parallel reports for one pane no longer lose an update when the pane lock is released between two attempts to take it.
 

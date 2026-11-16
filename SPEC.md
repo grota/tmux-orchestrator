@@ -722,12 +722,17 @@ The reporter SHALL track a Claude agent's main-thread state from main-thread eve
 
 ### Claude background task tracking
 
-The reporter SHALL track the background tasks a Claude agent and its subagents launch: a `Bash` call with `run_in_background` or a `Monitor` call, added from the `PostToolUse` hook of whichever actor made it. A main-thread `UserPromptSubmit` hook whose prompt is a `<task-notification>` with status `completed`, `failed` or `killed` SHALL remove the task it names. A `Stop` or `SubagentStop` hook that carries `background_tasks` SHALL replace the list with its `shell` and `monitor` tasks whose status is `running`; one without that field MUST leave the list alone. A new session MUST clear the list, and an interrupt MUST NOT. A task that no `Stop` or `SubagentStop` has listed for six hours since its launch MUST be dropped. Reporters handling events of the same pane MUST NOT lose each other's updates. Background tasks MUST NOT change the agent state, the session rollup or notifications.
+The reporter SHALL track the background tasks a Claude agent and its subagents launch: a `Bash` call with `run_in_background` or a `Monitor` call, added from the `PostToolUse` hook of whichever actor made it. A main-thread `UserPromptSubmit` hook whose prompt is a `<task-notification>` with status `completed`, `failed` or `killed` SHALL remove the task it names. A `Stop` or `SubagentStop` hook that carries `background_tasks` SHALL replace the list with its `shell` and `monitor` tasks whose status is `running`, except artifact watches; one without that field MUST leave the list alone. A new session MUST clear the list, and an interrupt MUST NOT. A task that no `Stop` or `SubagentStop` has listed for six hours since its launch MUST be dropped. Reporters handling events of the same pane MUST NOT lose each other's updates. Background tasks MUST NOT change the agent state, the session rollup or notifications.
 
 #### Scenario: Task ends while the agent is idle
 
 - **WHEN** a background `Bash` task finishes after the agent's turn ended
 - **THEN** Claude Code starts a turn to deliver its result, and that turn's `Stop` no longer lists the task
+
+#### Scenario: Artifact watch
+
+- **WHEN** a `Stop` lists the session's artifact watch as a running `monitor` task
+- **THEN** the task is not listed
 
 #### Scenario: Interrupt
 
@@ -1774,6 +1779,8 @@ The sidebar shows how many background tasks a Claude agent and its subagents lef
 - `Monitor`'s `PostToolUse` response has no `backgroundTaskId`, so it is listed by its tool-use ID until the next `Stop` gives its real ID.
 - Two reporters for the same pane take turns through a lock directory, because parallel tool calls run their hooks at once and `flock` is missing on macOS. A lock held over about two seconds is taken over.
 - A task that no `Stop` lists for six hours is dropped, so a missed end cannot keep a count forever.
+- A subagent's task that ends while the subagent works stays listed until the subagent's next `SubagentStop`, because no hook reports the notification it receives mid-turn.
+- Claude Code runs an artifact watch as a `monitor_ws` task, which `background_tasks` labels `monitor` without saying it is ambient. The watch never ends with a notification and Claude Code does not show it as a task, so the adapter drops `monitor` tasks whose ID starts with `s`, the prefix Claude Code gives `monitor_ws` tasks.
 - The adapter sends `--task`, `--tasks` and `--task-done` as optional report options. Older reporters skip them, so the report protocol stays at version 1.
 
 ### D12. An agent's open desktop notification is replaced by ID

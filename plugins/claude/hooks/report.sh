@@ -15,6 +15,8 @@ fi
 [[ -n $reporter ]] || exit 0
 command -v jq >/dev/null 2>&1 || exit 0
 
+# background_tasks labels an artifact watch (a `monitor_ws` task, ID prefix `s`)
+# as `monitor`; it never ends, so it is not counted (SPEC.md D11).
 fields=()
 while IFS= read -r -d '' field; do
 	fields+=("$field")
@@ -29,7 +31,7 @@ done < <(jq -j '[
 	(.tool_response.backgroundTaskId? // .tool_response.taskId? // .tool_use_id // ""),
 	(.tool_input.run_in_background? // false),
 	has("background_tasks"),
-	([.background_tasks[]? | select(.status == "running" and (.type == "shell" or .type == "monitor")) | .id] | join(" ")),
+	([.background_tasks[]? | select(.status == "running" and (.type == "shell" or (.type == "monitor" and (.id | startswith("s") | not)))) | .id] | join(" ")),
 	(if .hook_event_name == "UserPromptSubmit" and (.prompt | type) == "string" and (.prompt | startswith("<task-notification>"))
 	 then (.prompt | [(capture("<task-id>(?<id>[^<]+)</task-id>").id // ""), (capture("<status>(?<s>[^<]+)</status>").s // "")] | join(" "))
 	 else "" end)
