@@ -1,0 +1,5 @@
+{
+  "name": "tmux-orchestrator",
+  "version": "0.1.0",
+  "description": "Show Codex thread activity in the tmux-orchestrator sidebar."
+}

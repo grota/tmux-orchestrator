@@ -1,6 +1,6 @@
 # tmux-orchestrator
 
-A tmux-native sidebar for Claude Code and OpenCode agents. It shows every tmux
+A tmux-native sidebar for Claude Code, Codex, and OpenCode agents. It shows every tmux
 session with an agent, the agents in the current session, and switches to the
 right session, window, and pane with one click.
 
@@ -12,15 +12,15 @@ and no external database.
 
 ## Install
 
-All installation is user-level. No existing hook JSON or agent configuration
-file is rewritten.
+All installation is user-level. Each adapter has its own plugin package.
 
 ### Requirements
 
 - tmux 3.9 or newer (`side-status` is required).
-- `jq` for Claude Code hook payloads.
+- `jq` for Claude Code and Codex hook payloads.
 - Claude Code 2.1.x and/or OpenCode 2.x (tested with 2.1.3). OpenCode 1.x is not
   supported.
+- Codex CLI 0.171.0, tested with plugin hooks enabled.
 - `python3` or `nc` with `-U` support, to focus and rename OpenCode tabs and
   rename Claude Code agents.
 - Optional, for desktop notifications: `notify-send` on Linux or `osascript` on
@@ -46,6 +46,32 @@ then enable it in `/plugin` if needed. Sessions started afterwards are tracked.
 /plugin install tmux-orchestrator@tmux-orchestrator
 ```
 
+To load the plugin for one session from a local checkout, start Claude Code
+with `claude --plugin-dir /path/to/tmux-orchestrator/plugins/claude`.
+
+### Codex
+
+From the tmux-orchestrator checkout, add the local marketplace and install the plugin.
+
+```bash
+codex plugin marketplace add "$PWD/plugins/codex"
+codex plugin add tmux-orchestrator@tmux-orchestrator
+```
+
+For daemon-backed sessions, include `thread-id` in the Codex terminal title.
+Add this setting to the `[tui]` section of `~/.codex/config.toml`:
+
+```toml
+[tui]
+terminal_title = ["thread-id", "spinner", "project"]
+```
+
+Start or resume Codex as usual inside tmux. Trust the tmux-orchestrator hooks
+in `/hooks` and submit a prompt. The hook uses the thread ID to find its pane
+on the default tmux server started with the usual socket. For a named tmux
+server, set `TMUX_SOCKET` to the server name in the daemon's environment.
+Sessions started with `--no-daemon` can use any terminal title.
+
 ### OpenCode
 
 Nothing to do: the tmux plugin links the OpenCode adapter when
@@ -63,9 +89,11 @@ border to make room, double-click the border to snap it back.
 - **Session rows** roll up their agents into the single most urgent state, and
   count who is blocked (`◉2`), failed (`×1`) or done (`✓1`). `▸` marks where
   you are.
-- **Agent rows** show the state, the name, the kind (`claude` or `opencode`)
+- **Agent rows** show the state, the name, the kind (`claude`, `codex`, or `opencode`)
   and how long the agent has been in that state (`3m12s`), so the agent that
   has been waiting longest stands out.
+  Codex shows the thread title when available and uses the directory name
+  until a title is available. Use `/rename` in Codex to change the title.
 - **Subagents and background work** are visible too: a Claude Code agent with
   subagents shows their state and count (`✓ ●2`), and its background tasks add
   a blue `·` and their count (`·2`).
@@ -229,6 +257,23 @@ The plugin forwards these hooks to the reporter, which maps them:
 - A background session shown with `claude attach <id|name>` is the agent of
   that pane while the pane shows it. Events from a session no pane shows are
   ignored.
+
+### Codex events
+
+One row per pane shows the Codex thread.
+
+| Hook                                             | State change      |
+| ------------------------------------------------ | ----------------- |
+| `SessionStart`                                   | `idle`            |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse`  | `working`         |
+| `PermissionRequest`, `PreToolUse` for user input | `blocked`         |
+| `Stop`                                           | `done` after work |
+| `Interrupt`                                      | `idle`            |
+| `SessionEnd`                                     | Remove the row    |
+
+Codex rows have no sidebar rename action. Codex sends `SessionStart` with the
+first prompt, so a new or resumed thread gets its row when it receives one.
+Model failures have no matching hook in this adapter.
 
 ### OpenCode events
 

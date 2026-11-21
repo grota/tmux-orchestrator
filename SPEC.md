@@ -14,7 +14,7 @@ This document is the single source of truth for what tmux-orchestrator does and 
 ## 1. Glossary
 
 **Agent**:
-An agent session open in a tmux pane, whose state this project tracks. A Claude Code pane holds one agent; an OpenCode pane holds one per tab. Subagents are not agents: their activity counts toward the agent that started them.
+An agent session open in a tmux pane, whose state this project tracks. A Claude Code or Codex pane holds one agent. An OpenCode pane holds one per tab. Subagents are not agents: their activity counts toward the agent that started them.
 _Avoid_: worker, bot, process
 
 **Agent name**:
@@ -30,7 +30,7 @@ An optional key binding that brings the user to the next agent across all tmux s
 _Avoid_: attention key, jump key
 
 **Agent kind**:
-The product an agent belongs to: Claude Code or OpenCode.
+The product an agent belongs to: Claude Code, Codex, or OpenCode.
 _Avoid_: agent type, agent name
 
 **Agent pane**:
@@ -42,7 +42,7 @@ An OpenCode tab showing one root agent session. Closing a tab ends that agent wi
 _Avoid_: window, view
 
 **Agent session**:
-A conversation inside Claude Code or OpenCode, identified by its own id and name.
+A conversation inside Claude Code, Codex, or OpenCode, identified by its own ID and name.
 _Avoid_: session, conversation
 
 **Tmux session**:
@@ -192,7 +192,7 @@ The system SHALL store each agent's state, name, kind, agent session identifier,
 
 ### Agent identity
 
-The system SHALL record an agent name, an agent kind of `claude` or `opencode`, and the integration's session identifier for every tracked agent. An agent is one agent session open in a pane: a Claude Code pane holds one agent and an OpenCode pane holds one per tab.
+The system SHALL record an agent name, an agent kind of `claude`, `codex`, or `opencode`, and the integration's session identifier for every tracked agent. A Claude Code or Codex pane holds one agent. An OpenCode pane holds one per tab.
 
 #### Scenario: Name unavailable
 
@@ -229,7 +229,7 @@ The system SHALL remove an agent when the integration reports its agent session 
 
 #### Scenario: SessionEnd
 
-- **WHEN** a Claude agent reports its session ended
+- **WHEN** a Claude Code or Codex agent reports its session ended
 - **THEN** the pane's agent is removed and it no longer appears in the sidebar
 
 #### Scenario: Tab closed
@@ -272,7 +272,7 @@ The system SHALL record, for each agent, the last agent event it received with i
 
 ## 3. Agent integrations
 
-Defines how Claude Code and OpenCode report lifecycle events to the shared reporter, how agent names are resolved, and how the three installable artifacts are packaged and kept from disrupting the agents they observe.
+Defines how the integrations report lifecycle events, resolve names, and isolate tracking failures from the agents they observe.
 
 ### Claude Code event mapping
 
@@ -331,6 +331,45 @@ The Claude Code adapter SHALL use the session title supplied by the hook when pr
 
 - **WHEN** the name lookup takes longer than the hook's budget
 - **THEN** the hook returns without waiting and the state is already recorded
+
+### Codex event mapping
+
+The Codex adapter SHALL map `SessionStart` to `idle`, `UserPromptSubmit` and tool activity to `working`, `PermissionRequest` and `PreToolUse` for `request_user_input` to `blocked`, `Stop` to completion, `Interrupt` to `idle`, and `SessionEnd` to removal. It SHALL skip compaction starts and subagent lifecycle hooks.
+
+The reporter SHALL use the title for the full thread ID from Codex's local session index when available, with the working-directory basename as the fallback. It SHALL refresh that title while the pane is tracked, including after `/rename` while idle.
+
+#### Scenario: Codex thread renamed while idle
+
+- **WHEN** the title for a tracked thread changes in the Codex session index
+- **THEN** the sidebar updates that row's name and keeps its current state
+
+The Codex adapter SHALL find a unique live Codex pane on the local tmux server whose pane title contains the hook's thread ID. When no pane title contains it, the adapter SHALL use the pane from the hook environment, and only when an ancestor process of the hook runs on that pane's terminal. It SHALL accept the full ID and Codex's abbreviated title form. For `SessionEnd` it SHALL use the full ID stored in the pane's slot, since the title may have changed.
+
+#### Scenario: Two daemon-backed clients in the same directory
+
+- **WHEN** both clients put their thread IDs in their pane titles
+- **THEN** a hook for one thread updates only the pane displaying that thread
+
+#### Scenario: Ambiguous pane title
+
+- **WHEN** more than one pane matches an incoming daemon-backed event
+- **THEN** the adapter leaves the panes' state unchanged
+
+#### Scenario: Codex exits to the shell
+
+- **WHEN** the Codex client exits while the daemon still holds its thread
+- **THEN** the sidebar removes that pane's Codex row and updates the session count
+
+#### Scenario: Permission requested and resolved
+
+- **WHEN** Codex emits `PermissionRequest` and later completes the tool with `PostToolUse`
+- **THEN** the agent becomes `blocked` and returns to `working` when the tool finishes
+
+#### Scenario: Thread replaced
+
+- **WHEN** a new thread starts or receives a prompt in the same pane
+- **THEN** it replaces the previous Codex thread and its state time resets
+- **AND** later tool and termination events from the previous thread leave the new row unchanged
 
 ### OpenCode event mapping
 
@@ -396,7 +435,7 @@ The system MUST strip newlines and control characters from agent names, escape `
 
 ### Packaging
 
-The repository SHALL provide a TPM-compatible tmux plugin, a Claude Code marketplace plugin, and an OpenCode 2.x TUI plugin that share one reporter and one version. The tmux plugin SHALL hold the only copy of the reporter. Installation MUST be user-level and MUST NOT merge hooks into or rewrite existing user configuration files.
+The repository SHALL provide a TPM-compatible tmux plugin, marketplace plugins for Claude Code and Codex, and an OpenCode 2.x TUI plugin. They SHALL share one reporter and one version. The tmux plugin SHALL hold the only copy of the reporter. Installation MUST be user-level and preserve existing agent settings and hook definitions.
 
 #### Scenario: Tmux plugin load
 
@@ -407,6 +446,11 @@ The repository SHALL provide a TPM-compatible tmux plugin, a Claude Code marketp
 
 - **WHEN** the user adds this repository as a Claude Code marketplace and enables the plugin
 - **THEN** its hooks call the shared reporter and no manual hook JSON edit is required, even though Claude Code installs only the plugin's own directory
+
+#### Scenario: Codex plugin enablement
+
+- **WHEN** the user installs the plugin from the local Codex marketplace and trusts its hooks in `/hooks`
+- **THEN** a Codex thread in a tmux pane can report events to the shared reporter through the bundled hooks
 
 #### Scenario: OpenCode plugin install
 
@@ -548,7 +592,7 @@ The tmux plugin SHALL publish the absolute path of its reporter in the global op
 #### Scenario: Switching plugin copies
 
 - **WHEN** the user reloads tmux with a different copy of the tmux plugin
-- **THEN** the next agent event from either adapter uses that copy's reporter without restarting the agent
+- **THEN** the next agent event uses that copy's reporter without restarting the agent
 
 #### Scenario: No reporter available
 
@@ -1199,7 +1243,7 @@ The plugin SHALL bind the toggle key only when that key has no binding in the pr
 
 ### Rename from the sidebar
 
-Double-clicking a session row SHALL open a prompt that renames that tmux session. Double-clicking an agent row SHALL open a prompt prefilled with the agent name, and the answer SHALL rename the agent session in its agent. An empty answer MUST change nothing. The double-click binding MUST NOT be listed in the keys panel.
+Double-clicking a session row SHALL open a prompt that renames that tmux session. Double-clicking a Claude Code or OpenCode agent row SHALL open a prompt prefilled with the agent name, and the answer SHALL rename the agent session in its agent. An empty answer MUST change nothing. The double-click binding MUST NOT be listed in the keys panel.
 
 #### Scenario: Rename a session
 
@@ -1605,7 +1649,7 @@ While an agent's previous `notify-send` notification is still open, the next one
 
 ### D1. Agent state comes from lifecycle events, not screen scraping
 
-Claude Code and OpenCode both expose lifecycle events. We report state from Claude Code hooks and an OpenCode plugin only, and do not parse pane contents. Screen parsing was rejected as a second, version-fragile source of truth that duplicates what the agents already emit.
+The integrations report state through Claude Code and Codex hooks and the OpenCode TUI plugin. These lifecycle events provide an explicit state source independent of terminal rendering.
 
 **Consequences**
 
@@ -1896,3 +1940,20 @@ A subagent, often a fork, can launch a background command and end its turn while
 
 - A subagent whose task ends without a later `Stop` or `SubagentStop` stays listed until its six-hour expiry.
 - Subagent entries carry their task IDs: `id:state:tasks:time`.
+
+### D19. Codex thread IDs connect daemon hooks to tmux panes
+
+The shared Codex daemon runs hooks outside the terminal client's controlling terminal. An auto-started daemon can inherit pane variables from the client that started it, then handle hooks for other clients. Each client can put its thread ID in its terminal title, which tmux exposes as pane metadata. The adapter matches that ID before forwarding the hook. The hook still determines the state.
+
+**Considered options**
+
+- **Match by working directory.** Rejected because several Codex clients can use the same checkout.
+- **Read the terminal screen.** Rejected because the title provides the thread identity without depending on layout.
+
+**Consequences**
+
+- Daemon-backed clients include `thread-id` in the terminal title. Codex 0.171 abbreviates that item to 29 characters followed by three dots, and puts `Action Required` before the items while it waits for an approval.
+- Codex 0.171 runs a hook in its own session, without a controlling terminal. A hook of a client started with `--no-daemon` is a descendant of that client, so its pane variable is trusted when an ancestor runs on the pane's terminal.
+- Codex 0.171 sends `SessionStart` with the first prompt of a new or resumed thread, so the row appears then.
+- A daemon hook uses the default tmux server or the daemon's configured `TMUX_SOCKET`.
+- One watcher per tracked Codex pane, identified by a token in `@agent_codex_watch`, checks for the terminal client to exit and refreshes its name from the local session index using the full thread ID. The daemon can continue to hold the thread after the sidebar removes the row.

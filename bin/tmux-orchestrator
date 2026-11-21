@@ -704,6 +704,25 @@ report_event() {
 	# A Claude pane holds one agent; a new session ID (resume, /clear) replaces it.
 	if [[ $kind == claude ]]; then
 		((N > 0)) && i=1 || i=''
+	elif [[ $kind == codex ]]; then
+		# A new or resumed thread replaces the one previously shown. Late
+		# tool and shutdown hooks from the previous thread cannot change it.
+		[[ -n $sid ]] || return 0
+		i=''
+		if ((N > 0)); then
+			[[ ${KIND[1]} == codex ]] || return 0
+			i=1
+		fi
+		if [[ -n $i && ${SID[i]} != "$sid" ]]; then
+			case "$event" in
+			SessionStart | UserPromptSubmit) RAW[i]='' SINCE[i]='' STATE[i]='' ;;
+			*) return 0 ;;
+			esac
+		elif [[ -z $i ]]; then
+			case "$event" in
+			Stop | Interrupt | SessionEnd) return 0 ;;
+			esac
+		fi
 	elif [[ -n $sid ]]; then
 		i=$(find_slot "$sid")
 	else
@@ -772,6 +791,9 @@ report_event() {
 
 	raw=''
 	[[ -n $name ]] && raw=$(sanitize_name "$name")
+	if [[ -z $raw && $kind == codex && ($event == SessionStart || $event == UserPromptSubmit || -z ${RAW[i]-}) ]]; then
+		raw=$(codex_thread_name "${SID[i]}")
+	fi
 	[[ -n $raw ]] && RAW[i]=$raw
 	[[ -n ${RAW[i]-} ]] || RAW[i]=$(fallback_name "$pane" "$cwd")
 
@@ -816,6 +838,10 @@ report_event() {
 
 	[[ $verb == set && $notify == 1 ]] && notify_agent "$pane" "$i" "$next"
 
+	if [[ $kind == codex ]]; then
+		start_codex_watch "$pane"
+	fi
+
 	if [[ $kind == claude && $event == UserPromptSubmit ]]; then
 		start_interrupt_watch "$pane" "${SID[i]-}"
 	fi
@@ -825,6 +851,70 @@ report_event() {
 		[[ -n $claude_bin ]] || claude_bin=$(command -v claude 2>/dev/null || true)
 		spawn_name_refresh "$pane" "${SID[i]}" "$claude_bin"
 	fi
+}
+
+codex_thread_name() {
+	local sid=$1 index="${CODEX_HOME:-$HOME/.codex}/session_index.jsonl" name
+	[[ -n $sid && -r $index ]] || return 0
+	name=$(jq -Rnr --arg sid "$sid" '
+		reduce (inputs | fromjson? | objects | select(.id == $sid)) as $entry
+			(null; $entry.thread_name) | strings
+	' "$index" 2>/dev/null) || return 0
+	[[ -z $name ]] || sanitize_name "$name"
+}
+
+# A daemon may keep a thread loaded after its terminal client exits. The
+# watcher also picks up title changes made between lifecycle events.  Removing
+# the agent clears @agent_codex_watch, so a watcher stops when the option no
+# longer holds its token.
+start_codex_watch() {
+	local pane=$1 cmd status token
+	status=$(tmux_do display-message -p -t "$pane" '#{pane_current_command} #{@agent_codex_watch}') || return 0
+	[[ $status == 'codex ' ]] || return 0
+	token="$(date +%s)-$$-$RANDOM"
+	set_pane_opt "$pane" @agent_codex_watch "$token"
+	cmd=$(printf '%q ' "$SELF_DIR/tmux-orchestrator" watch-codex "$pane" "$token")
+	[[ -n ${TMUX_SOCKET:-} ]] && cmd="TMUX_SOCKET=$(printf '%q' "$TMUX_SOCKET") $cmd"
+	[[ -n ${CODEX_HOME:-} ]] && cmd="CODEX_HOME=$(printf '%q' "$CODEX_HOME") $cmd"
+	tmux_ok run-shell -b "$cmd" || unset_pane_opt "$pane" @agent_codex_watch
+}
+
+codex_watch_status() {
+	tmux_do display-message -p -t "$1" '#{@agent_1_kind} #{pane_current_command} #{@agent_1_sid} #{@agent_1_name_raw}' || true
+}
+
+finish_codex_watch() {
+	local pane=$1 status
+	status=$(codex_watch_status "$pane")
+	# A new client may have reported while the watcher waited for the lock.
+	[[ $status != 'codex codex '* ]] || return 1
+	unset_pane_opt "$pane" @agent_codex_watch
+	[[ $status == 'codex '* ]] && remove_pane "$pane"
+	return 0
+}
+
+refresh_codex_name() {
+	local pane=$1 sid=$2 name=$3
+	[[ $(tmux_do display-message -p -t "$pane" '#{@agent_1_kind} #{@agent_1_sid}') == "codex $sid" ]] || return 0
+	set_slot_name "$pane" 1 "$name"
+	refresh_clients
+}
+
+watch_codex() {
+	local pane=$1 token=${2-} kind command sid current name
+	[[ $pane =~ ^%[0-9]+$ && -n $token ]] || return 0
+	while sleep 1; do
+		[[ $(get_pane_opt "$pane" @agent_codex_watch) == "$token" ]] || return 0
+		read -r kind command sid current <<<"$(codex_watch_status "$pane")"
+		if [[ $kind != codex || $command != codex ]]; then
+			with_pane_lock "$pane" finish_codex_watch "$pane" && return 0
+			continue
+		fi
+		name=$(codex_thread_name "$sid")
+		if [[ -n $name && $name != "$current" ]]; then
+			with_pane_lock "$pane" refresh_codex_name "$pane" "$sid" "$name"
+		fi
+	done
 }
 
 # Claude Code sends no hook for an interrupt (SPEC.md D6).  While a turn runs,
@@ -1343,6 +1433,7 @@ rename_agent() {
 		case "$kind" in
 		claude) rename_claude "$sid" "$name" ;;
 		opencode) rename_opencode "$pane" "$sid" "$name" ;;
+		codex) RENAME_ERROR='use /rename in Codex to rename its thread' ;;
 		*) RENAME_ERROR="unknown agent kind: $kind" ;;
 		esac
 	fi
@@ -1367,7 +1458,7 @@ rename_prompt() {
 	slot=${row#*:}
 	[[ $row == *:* && $slot =~ ^[0-9]+$ ]] || return 0
 	kind=$(get_pane_opt "$pane" "@agent_${slot}_kind")
-	[[ -n $kind ]] || return 0
+	[[ -n $kind && $kind != codex ]] || return 0
 	name=$(get_pane_opt "$pane" "@agent_${slot}_name_raw")
 	cmd="'$SELF_DIR/tmux-orchestrator' rename"
 	[[ -n ${TMUX_SOCKET:-} ]] && cmd="TMUX_SOCKET=$(printf '%q' "$TMUX_SOCKET") $cmd"
@@ -1721,7 +1812,7 @@ usage: tmux-orchestrator <command> [options]
 
 report options:
   --pane ID                pane to report on (default: $TMUX_PANE)
-  --kind KIND              agent kind: claude or opencode
+  --kind KIND              agent kind: claude, codex or opencode
   --event EVENT            adapter event name
   --detail D               event detail: tool name, tab or attach state
   --session-id ID          agent session id
@@ -1844,6 +1935,7 @@ main() {
 		[[ -n $pane && -n $socket ]] && set_pane_opt "$pane" @agent_socket "$socket"
 		;;
 	next-agent) next_agent "${1-}" ;;
+	watch-codex) watch_codex "${1-}" "${2-}" ;;
 	focus-agent)
 		local pane='' sid=''
 		while (($#)); do

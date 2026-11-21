@@ -70,6 +70,20 @@ agent_event_meaning() {
 	# hook (SPEC.md D6).
 	claude:Interrupted) printf interrupt ;;
 
+	codex:SessionStart) printf start ;;
+	codex:UserPromptSubmit) printf prompt ;;
+	codex:PreToolUse)
+		case "$detail" in
+		request_user_input) printf wait ;;
+		*) printf activity ;;
+		esac
+		;;
+	codex:PostToolUse) printf activity ;;
+	codex:PermissionRequest) printf wait ;;
+	codex:Stop) printf complete ;;
+	codex:Interrupt) printf interrupt ;;
+	codex:SessionEnd) printf end ;;
+
 	opencode:session.execution.started | opencode:permission.replied | \
 		opencode:form.replied | opencode:form.cancelled) printf activity ;;
 	opencode:permission.asked | opencode:form.created) printf wait ;;
