@@ -1680,7 +1680,7 @@ The reporter's `agents` command SHALL list every agent with its agent address, a
 
 ### Message delivery
 
-The reporter's `send` command SHALL type an agent message into the target agent's pane as a bracketed paste followed by Enter (D21). The message MUST open with the sender's agent kind, agent name and agent address, a statement that it comes from another agent and not from the user, and the command that replies to the sender. Control characters other than newline and tab MUST be removed from the text before it is pasted. A literal `</agent-message>` in the text MUST be altered so it cannot close the tag. The target MUST be an agent: a pane without one is refused, and so is an agent pane that is dead or runs a shell, where a crashed agent left its row.
+The reporter's `send` command SHALL type an agent message into the target agent's pane as a bracketed paste followed by Enter (D21). The message MUST open with the sender's agent kind, agent name and agent address, a statement that it comes from another agent and not from the user, and the command that replies to the sender. Control characters other than newline and tab MUST be removed from the text before it is pasted. A literal `</agent-message>` in the text MUST be altered so it cannot close the tag. The target MUST be an agent: a pane without one is refused, and so is an agent pane that is dead or runs a shell, where a crashed agent left its row. A Claude Code agent MUST NOT send to another Claude Code agent (D24).
 
 #### Scenario: Message to an idle agent
 
@@ -1696,6 +1696,7 @@ The reporter's `send` command SHALL type an agent message into the target agent'
 
 - **WHEN** `send` runs in a shell that is not an agent
 - **THEN** the message says it comes from a process outside any agent and cannot receive a reply
+- **AND** `send` warns on stderr that the message goes out from an unknown sender
 
 #### Scenario: Escape in the text
 
@@ -1706,6 +1707,11 @@ The reporter's `send` command SHALL type an agent message into the target agent'
 
 - **WHEN** an agent's row remains but its pane is back at a shell
 - **THEN** `send` fails, says the agent has exited, and types nothing
+
+#### Scenario: Claude Code to Claude Code
+
+- **WHEN** a Claude Code agent sends to another Claude Code agent
+- **THEN** `send` fails, points to Claude Code's `SendMessage` tool, and types nothing
 
 #### Scenario: Message to itself
 
@@ -2176,3 +2182,17 @@ Codex 0.171 creates its thread, and runs its first hook, only with the first pro
 - A Codex title update starts no process while the pane has a row, because the format test runs in the tmux server.
 - `send` reaches a Codex that has not had a prompt yet, and the message starts its first thread.
 - Until the first prompt the row has no thread ID, so its name is the working directory.
+
+### D24. Claude Code sessions message each other natively
+
+Claude Code has its own messaging between sessions, the `SendMessage` tool. It delivers to the session itself, not to its terminal, so it needs no typing guard, cannot mix with a draft, and names the sender reliably. Typing into a pane is the fallback for pairs that have nothing shared (D21). After the skill described every agent kind as a target, a Claude Code agent messaged another Claude Code agent through `send`.
+
+**Considered options**
+
+- **Say it in the skill only.** Rejected: an agent that already uses the skill for Codex keeps using it for every agent.
+- **Refuse in `send`.** Chosen, with the skill saying the same.
+
+**Consequences**
+
+- `send` refuses a Claude Code sender with a Claude Code target and names `SendMessage`.
+- A process outside any agent can still type into a Claude Code agent.

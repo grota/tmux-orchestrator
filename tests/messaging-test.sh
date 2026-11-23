@@ -109,9 +109,20 @@ OUT=$(CLAUDE_CODE_SESSION_ID=ses_b-not-tracked "$BIN" send "$PA" 'more' </dev/nu
 assert_eq "$OUT" "sent to $PA; it was working, so the message joins its current turn"
 wait_log ses_a '<agent-message from="unknown">'
 wait_log ses_a 'It cannot receive a reply.'
+ERR=$(CLAUDE_CODE_SESSION_ID=ses_b-not-tracked "$BIN" send "$PA" 'again' 2>&1 >/dev/null </dev/null)
+assert_has "$ERR" 'goes out from an unknown sender'
+ERR=$(CLAUDE_CODE_SESSION_ID=ses_b "$BIN" send "$PA" 'known' 2>&1 >/dev/null </dev/null)
+[[ $ERR != *'unknown sender'* ]] || fail "known sender warned: $ERR"
 
 # Text can come from stdin.
 printf 'line one\nline two\n' | CLAUDE_CODE_SESSION_ID=ses_a "$BIN" send beta >/dev/null
+
+# Claude Code sessions use their own SendMessage between themselves.
+PE=$(receiver echo-agent claude ses_e 1)
+ERR=$(CLAUDE_CODE_SESSION_ID=ses_a "$BIN" send "$PE" hi 2>&1) && fail 'Claude sent to Claude'
+assert_has "$ERR" 'SendMessage'
+sleep 0.3
+assert_eq "$(wc -c <"$TMP/ses_e.log")" 0
 wait_log ses_b 'line two'
 wait_log ses_b "from=\"$PA\" kind=\"claude\" name=\"alpha-agent\""
 

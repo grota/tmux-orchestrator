@@ -157,7 +157,8 @@ Need some quiet? Pause every notification with one command (see
 Claude Code and Codex agents can message each other. The plugins ship an
 `agent-messaging` skill, so you can ask an agent to "ask the Codex agent in
 window 3 to review this diff". The skill runs the reporter's `agents`, `send`,
-`wait` and `read` commands.
+`wait` and `read` commands. Two Claude Code sessions use Claude Code's own
+`SendMessage` instead, and `send` refuses that pair.
 
 `send` types the message into the other agent's prompt and presses Enter.
 The message opens with who sent it and how to reply, and the receiver

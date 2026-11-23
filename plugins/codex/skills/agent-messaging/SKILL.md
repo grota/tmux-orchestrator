@@ -1,13 +1,16 @@
 ---
 name: agent-messaging
-description: Talk to the other coding agents (Claude Code, Codex, OpenCode) running in the same tmux server through tmux-orchestrator. Use when the user asks you to ask, tell, delegate to, check on or coordinate with another agent, or when a message wrapped in <agent-message> arrives.
+description: Talk to a coding agent of another kind running in the same tmux server (Codex, OpenCode, or Claude Code when you are not Claude Code) through tmux-orchestrator. Use when the user asks you to ask, tell, delegate to, check on or coordinate with such an agent, or when a message wrapped in <agent-message> arrives. Between two Claude Code sessions, use Claude Code's own SendMessage tool instead.
 ---
 
 # Agent messaging
 
 tmux-orchestrator types a message into another agent's pane, as a person would.
 The receiver sees it as its next prompt, wrapped in an `<agent-message>` tag that
-names the sender. There is no other channel: answers come back as messages too.
+names the sender. Answers come back as messages too.
+
+Claude Code to Claude Code is the exception: use Claude Code's own `SendMessage`
+tool, not this skill. `send` refuses that pair.
 
 Run the commands through the reporter of the tmux server you are in:
 
@@ -55,3 +58,8 @@ T read %4 --lines 40
   could answer its dialog. Tell your user instead.
 - `send` waits while a person is typing in the target's pane, up to 60 seconds.
 - On "did not start a turn", read the target's screen before sending again.
+- `send` finds you by the `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID` your agent
+  exports. Run it from your own shell tool, and never unset or override them: the
+  message would go out from an unknown sender, which cannot get a reply.
+  `send` warns when that happens.
+- `send` has no dry run: every call types into the target.
