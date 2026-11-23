@@ -1,5 +1,6 @@
 {
   "name": "tmux-orchestrator",
-  "version": "0.1.0",
-  "description": "Show Codex thread activity in the tmux-orchestrator sidebar."
+  "version": "0.2.0",
+  "description": "Show Codex thread activity in the tmux-orchestrator sidebar and message other agents.",
+  "skills": "./skills/"
 }

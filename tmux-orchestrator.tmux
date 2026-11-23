@@ -13,6 +13,7 @@ RUN_FOCUS="${REPORTER_PREFIX}'$REPORTER' focus"
 RUN_SELECT="${REPORTER_PREFIX}'$REPORTER' select"
 RUN_RECONCILE="${REPORTER_PREFIX}'$REPORTER' reconcile"
 RUN_GC="${REPORTER_PREFIX}'$REPORTER' gc"
+RUN_CODEX_LAUNCH="${REPORTER_PREFIX}'$REPORTER' codex-launch"
 RUN_TOGGLE="${REPORTER_PREFIX}'$REPORTER' toggle"
 RUN_RENAME="${REPORTER_PREFIX}'$REPORTER' rename-prompt"
 RUN_NEXT_AGENT="${REPORTER_PREFIX}'$REPORTER' next-agent"
@@ -247,5 +248,10 @@ fi
 # remain-on-exit keeps a dead pane instead of firing pane-exited.
 "${TMUX_CMD[@]}" set-hook -gw 'pane-died[90]' "run-shell -b \"$RUN_GC\""
 "${TMUX_CMD[@]}" set-hook -g 'session-closed[90]' "run-shell -b \"$RUN_RECONCILE\""
+# Codex runs no hook before its first prompt, but sets its title at launch
+# (SPEC.md D23).  The format test keeps title updates from other programs, and
+# from a tracked Codex, from starting a process.
+"${TMUX_CMD[@]}" set-hook -gw 'pane-title-changed[90]' "if-shell -F '#{&&:#{==:#{pane_current_command},codex},#{==:#{@agent_n},}}' { run-shell -b \"$RUN_CODEX_LAUNCH #{pane_id}\" }"
+"${TMUX_CMD[@]}" run-shell -b "$RUN_CODEX_LAUNCH"
 
 exit 0

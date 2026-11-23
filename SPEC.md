@@ -1,6 +1,6 @@
 # tmux-orchestrator specification
 
-This document is the single source of truth for what tmux-orchestrator does and why: a persistent tmux view of the coding agents running in it. Requirements use SHALL and MUST; each has scenarios that pin its behaviour. Decisions record the choices behind the design and the options they rejected. Change this document in the same commit as the behaviour it describes. New terms go in the glossary and new decisions in section 6; this project keeps no separate `GLOSSARY.md`, `docs/adr/` or OpenSpec changes.
+This document is the single source of truth for what tmux-orchestrator does and why: a persistent tmux view of the coding agents running in it. Requirements use SHALL and MUST; each has scenarios that pin its behaviour. Decisions record the choices behind the design and the options they rejected. Change this document in the same commit as the behaviour it describes. New terms go in the glossary and new decisions in section 7; this project keeps no separate `GLOSSARY.md`, `docs/adr/` or OpenSpec changes.
 
 ## Contents
 
@@ -9,7 +9,8 @@ This document is the single source of truth for what tmux-orchestrator does and 
 3. [Agent integrations](#3-agent-integrations)
 4. [Sidebar](#4-sidebar)
 5. [Notifications](#5-notifications)
-6. [Decisions](#6-decisions)
+6. [Agent messaging](#6-agent-messaging)
+7. [Decisions](#7-decisions)
 
 ## 1. Glossary
 
@@ -84,6 +85,14 @@ _Avoid_: panel, sidebar pane, area
 **Keys panel**:
 A part of the sidebar, opened and closed by a click, that lists the configurable key bindings acting on the orchestrator.
 _Avoid_: help, cheatsheet, legend
+
+**Agent message**:
+Text one agent sends another through the reporter. It is typed into the receiving agent's pane, wrapped in an `<agent-message>` tag that names the sender, so the receiver takes it as its next prompt.
+_Avoid_: mail, notification, prompt injection
+
+**Agent address**:
+How a command names an agent: its pane ID (`%7`), its pane ID and slot for an OpenCode tab (`%7:2`), or its agent name when no other agent has it.
+_Avoid_: agent ID, handle
 
 **Options panel**:
 A part of the sidebar, opened and closed by a click, that shows the plugin's options with their current values, explains one when its label is clicked, and changes one when its value is clicked, until tmux restarts.
@@ -337,6 +346,14 @@ The Claude Code adapter SHALL use the session title supplied by the hook when pr
 The Codex adapter SHALL map `SessionStart` to `idle`, `UserPromptSubmit` and tool activity to `working`, `PermissionRequest` and `PreToolUse` for `request_user_input` to `blocked`, `Stop` to completion, `Interrupt` to `idle`, and `SessionEnd` to removal. It SHALL skip compaction starts and subagent lifecycle hooks.
 
 The reporter SHALL use the title for the full thread ID from Codex's local session index when available, with the working-directory basename as the fallback. It SHALL refresh that title while the pane is tracked, including after `/rename` while idle.
+
+The reporter SHALL add an `idle` Codex row without a thread ID for a pane whose foreground command is `codex` and that has no agent, when the pane's title changes and when the plugin loads. The first `SessionStart` or `UserPromptSubmit` of a thread in that pane SHALL take the row over.
+
+#### Scenario: Codex started
+
+- **WHEN** the user starts Codex in a pane and has not sent a prompt yet
+- **THEN** the sidebar shows an `idle` Codex row named after the working directory
+- **AND** the thread's first prompt gives the row its thread ID and state
 
 #### Scenario: Codex thread renamed while idle
 
@@ -1650,7 +1667,146 @@ While an agent's previous `notify-send` notification is still open, the next one
 - **WHEN** the desktop command is `osascript`
 - **THEN** the notification has no action and clicking it does nothing
 
-## 6. Decisions
+## 6. Agent messaging
+
+### Agent list
+
+The reporter's `agents` command SHALL list every agent with its agent address, agent kind, agent state, tmux window and agent name. It MUST mark the agent that runs the command. A pane in a window linked into several sessions SHALL be listed once, at its first location, and counts once when a name is resolved.
+
+#### Scenario: Codex lists the agents
+
+- **WHEN** a Codex agent runs `agents` in a server with one Claude agent and itself
+- **THEN** both are listed with their addresses, and the Codex row ends with `(you)`
+
+### Message delivery
+
+The reporter's `send` command SHALL type an agent message into the target agent's pane as a bracketed paste followed by Enter (D21). The message MUST open with the sender's agent kind, agent name and agent address, a statement that it comes from another agent and not from the user, and the command that replies to the sender. Control characters other than newline and tab MUST be removed from the text before it is pasted. A literal `</agent-message>` in the text MUST be altered so it cannot close the tag. The target MUST be an agent: a pane without one is refused, and so is an agent pane that is dead or runs a shell, where a crashed agent left its row.
+
+#### Scenario: Message to an idle agent
+
+- **WHEN** a Codex agent sends a message to an idle Claude agent
+- **THEN** the Claude agent's prompt receives the message, its turn starts, and `send` reports it sent
+
+#### Scenario: Message to a working agent
+
+- **WHEN** the target agent is `working`
+- **THEN** the message is typed at once and joins the agent's current turn
+
+#### Scenario: Sender outside any agent
+
+- **WHEN** `send` runs in a shell that is not an agent
+- **THEN** the message says it comes from a process outside any agent and cannot receive a reply
+
+#### Scenario: Escape in the text
+
+- **WHEN** the text holds an escape sequence that ends a bracketed paste
+- **THEN** the escape character is removed, and the whole text arrives inside one paste
+
+#### Scenario: Crashed agent
+
+- **WHEN** an agent's row remains but its pane is back at a shell
+- **THEN** `send` fails, says the agent has exited, and types nothing
+
+#### Scenario: Message to itself
+
+- **WHEN** an agent addresses its own pane
+- **THEN** `send` fails and nothing is typed
+
+#### Scenario: Window linked into two sessions
+
+- **WHEN** the only agent with a name sits in a window linked into two sessions
+- **THEN** `agents` lists it once and `send` to its name reaches it
+
+#### Scenario: Ambiguous name
+
+- **WHEN** two agents share the name used as the address
+- **THEN** `send` fails and lists their agent addresses
+
+### No message to a blocked agent
+
+`send` MUST NOT type into an agent that is `blocked`. Just before typing, under the pane lock that OpenCode tab snapshots also take, it SHALL check again that the slot holds the same agent session ID and agent kind, that the agent is not `blocked`, that an OpenCode target is still the tab in front, and that no client showing the pane had a key in the last three seconds. It MUST NOT type into a pane in a mode, with input turned off, or with synchronized panes, where the keys would not reach the agent alone.
+
+#### Scenario: OpenCode tab switched before typing
+
+- **WHEN** the user brings another OpenCode tab to the front while `send` waits to type into the first
+- **THEN** `send` fails and types nothing
+
+#### Scenario: Pane in copy mode
+
+- **WHEN** the target pane is in copy mode or has its input turned off
+- **THEN** `send` fails and types nothing
+
+#### Scenario: Agent waits for a permission
+
+- **WHEN** the target agent is `blocked`
+- **THEN** `send` fails, says that the agent waits for a person, and types nothing
+
+### Delivery confirmation
+
+When the target was not `working`, `send` SHALL report success only after, within ten seconds, the same agent records a new event and is `working` or `blocked`, or `done` when it was not `done` before. The same agent is the one with the agent session ID that `send` resolved; a Codex row from launch, which has none yet, may gain one. Any other change to the slot MUST fail the send. `send --wait` SHALL wait for that agent, not for whatever the address names later.
+
+#### Scenario: Message not submitted
+
+- **WHEN** the target records no new turn within ten seconds of the paste
+- **THEN** `send` fails and suggests reading the target's screen
+
+#### Scenario: Turn interrupted at once
+
+- **WHEN** the target only reports an interrupt after the paste and stays `idle`
+- **THEN** `send` fails
+
+#### Scenario: Target removed
+
+- **WHEN** the target's row is removed after the paste
+- **THEN** `send` fails and says the target changed
+
+### A person typing comes first
+
+`send` SHALL wait while a client showing the target pane has had a key in the last three seconds, and MUST fail after 60 seconds of such typing.
+
+#### Scenario: User types in the target
+
+- **WHEN** the user is typing in the target agent's pane
+- **THEN** the message is typed after the user has paused for three seconds
+
+### Sender identity
+
+The sender SHALL be the agent whose agent session ID equals the `CODEX_THREAD_ID` or `CLAUDE_CODE_SESSION_ID` of the command, or the OpenCode agent of the pane in `TMUX_PANE` (D22).
+
+#### Scenario: Daemon-backed Codex
+
+- **WHEN** a Codex tool command runs in the shared Codex daemon, with an empty or another pane's `TMUX_PANE`
+- **THEN** its thread ID still names the Codex agent that ran it
+
+### Waiting and reading
+
+The reporter's `wait` command SHALL return the agent state once the agent is not `working`, and exit with status 3 after its timeout, 100 seconds by default. `read` SHALL print the last lines of the agent's pane without trailing blank lines. `--timeout` and `--lines` SHALL take decimal whole numbers, a leading zero included, and refuse anything else. In `send`, the arguments after `--` SHALL be the text, even when they look like options; only an adapter's leading `--protocol` is stripped before a command parses.
+
+#### Scenario: Turn ends
+
+- **WHEN** an agent being waited on finishes its turn
+- **THEN** `wait` prints `done`
+
+#### Scenario: Leading zero
+
+- **WHEN** `wait` gets `--timeout 08`
+- **THEN** it waits eight seconds
+
+#### Scenario: Long turn
+
+- **WHEN** the agent is still `working` at the timeout
+- **THEN** `wait` says so and exits with status 3
+
+### Messaging skill
+
+The Claude Code and Codex plugins SHALL ship the same `agent-messaging` skill, which teaches an agent the commands, the reply convention and the rules: a message is a peer's request, not the user's instructions; reply only when asked; never message a `blocked` agent.
+
+#### Scenario: Skill copies
+
+- **WHEN** the tests run
+- **THEN** the two copies of the skill are identical
+
+## 7. Decisions
 
 ### D1. Agent state comes from lifecycle events, not screen scraping
 
@@ -1959,7 +2115,7 @@ The shared Codex daemon runs hooks outside the terminal client's controlling ter
 
 - Daemon-backed clients include `thread-id` in the terminal title. Codex 0.171 abbreviates that item to 29 characters followed by three dots, and puts `Action Required` before the items while it waits for an approval.
 - Codex 0.171 runs a hook in its own session, without a controlling terminal. A hook of a client started with `--no-daemon` is a descendant of that client, so its pane variable is trusted when an ancestor runs on the pane's terminal.
-- Codex 0.171 sends `SessionStart` with the first prompt of a new or resumed thread, so the row appears then.
+- Codex 0.171 sends `SessionStart` with the first prompt of a new or resumed thread; D23 adds the row earlier.
 - A daemon hook uses the default tmux server or the daemon's configured `TMUX_SOCKET`.
 - One watcher per tracked Codex pane, identified by a token in `@agent_codex_watch`, checks for the terminal client to exit and refreshes its name from the local session index using the full thread ID. The daemon can continue to hold the thread after the sidebar removes the row.
 
@@ -1974,3 +2130,49 @@ tmux reports a mouse event in the side status line with the `SideStatus` locatio
 **Consequences**
 
 - `tests/mouse-test.sh` sends real mouse input to a client, so tmux itself names the key; binding checks with `list-keys` alone cannot catch a renamed key.
+
+### D21. Agent messages are typed into the receiving agent's pane
+
+Claude Code and Codex have no common way to receive a message from another program. Claude Code's messaging socket (D9) reaches only Claude sessions, and Codex offers nothing comparable for a running TUI. Both read a bracketed paste followed by Enter as a submitted prompt, and both accept one while `working`, folding it into the current turn. Herdr's `hc send` works the same way. The reporter types the message, wrapped in an `<agent-message>` tag. Its first line names the sender and says the message is not from the user, and gives the command that replies.
+
+**Considered options**
+
+- **Claude Code's messaging socket.** Rejected: Claude-only, and internal to Claude Code.
+- **An MCP server that both agents poll.** Rejected for now: an agent reads it only when it decides to call it, so a message cannot start a turn.
+- **Files in a shared folder.** Rejected for the same reason.
+
+**Consequences**
+
+- The receiver cannot tell a typed message from the user's own typing; only the tag and its first line say otherwise. A message carries the authority the user gave the receiving agent, so each agent's own permission prompts stay the guard. `send` never types into a `blocked` agent, where Enter could answer a permission dialog.
+- tmux cannot see a half-typed draft. A key pressed recently by a client showing the pane stands in for one; text typed earlier and left in the prompt still mixes with the message.
+- Replies are messages too: there is no request and response pairing, and the skill tells agents not to answer replies, so two agents do not loop.
+- A background OpenCode tab cannot receive a message.
+
+### D22. The sender is found by the session ID its agent exports
+
+A message names its sender so the receiver can reply. `TMUX_PANE` cannot be trusted for Codex: a command run by the shared Codex daemon can carry the pane variables of the client that started the daemon (D19). Codex 0.171 exports `CODEX_THREAD_ID` and Claude Code 2.1.330 exports `CLAUDE_CODE_SESSION_ID` to every tool command, and both equal the agent session ID the adapters store. The reporter matches them against the stored IDs, `CODEX_THREAD_ID` first. OpenCode exports neither, so its pane is used.
+
+**Considered options**
+
+- **`TMUX_PANE` alone.** Rejected: wrong for daemon-backed Codex.
+- **The process ancestry, as the Codex adapter checks it.** Rejected: a daemon-run command has no ancestor on the pane's terminal.
+
+**Consequences**
+
+- A command whose environment matches no agent sends as an unknown sender, which cannot get a reply.
+- A program started from an agent's tool command inherits that agent's ID and sends as that agent.
+
+### D23. A Codex pane is tracked from its title at launch
+
+Codex 0.171 creates its thread, and runs its first hook, only with the first prompt, so a started Codex had no row and could not receive an agent message. Its client sets the terminal title as soon as it starts, and tmux runs the `pane-title-changed` hook for it. The hook tests in a format that the pane runs `codex` and has no agent, and only then runs the reporter, which adds an `idle` row without a thread ID. The thread's first `SessionStart` or `UserPromptSubmit` replaces the row, as for any new thread (D19), and the Codex watcher removes it when the client exits.
+
+**Considered options**
+
+- **Poll the panes' commands.** Rejected: it starts a process on a timer for something tmux already signals.
+- **Wrap the `codex` command.** Rejected: it misses Codex started any other way.
+
+**Consequences**
+
+- A Codex title update starts no process while the pane has a row, because the format test runs in the tmux server.
+- `send` reaches a Codex that has not had a prompt yet, and the message starts its first thread.
+- Until the first prompt the row has no thread ID, so its name is the working directory.

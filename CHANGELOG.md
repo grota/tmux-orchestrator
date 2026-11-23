@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agent messaging: `agents`, `send`, `wait` and `read` reporter commands let Claude Code and Codex agents message each other.
+- `agent-messaging` skill in the Claude Code and Codex plugins.
+- A Codex pane gets its `idle` row as soon as Codex starts, before the first prompt.
 - Codex CLI support: a Codex plugin in `plugins/codex` reports thread state, and rows show the agent kind `codex`.
 - Options panel, opened from the `≡ options` sidebar row: clicking a value changes the option until tmux restarts, and clicking a label shows its description.
 - `@tmux-orchestrator-name-wrap` option: `wrap` (default) or `nowrap`.

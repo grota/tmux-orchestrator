@@ -72,6 +72,10 @@ on the default tmux server started with the usual socket. For a named tmux
 server, set `TMUX_SOCKET` to the server name in the daemon's environment.
 Sessions started with `--no-daemon` can use any terminal title.
 
+Codex copies the plugin when it installs it. After updating tmux-orchestrator,
+run `codex plugin add tmux-orchestrator@tmux-orchestrator` again, then trust
+the hooks again in `/hooks` and restart running Codex sessions.
+
 ### OpenCode
 
 Nothing to do: the tmux plugin links the OpenCode adapter when
@@ -148,6 +152,22 @@ are already looking at it.
 Need some quiet? Pause every notification with one command (see
 [Commands](#commands)); the sidebar keeps updating.
 
+### Agent messaging
+
+Claude Code and Codex agents can message each other. The plugins ship an
+`agent-messaging` skill, so you can ask an agent to "ask the Codex agent in
+window 3 to review this diff". The skill runs the reporter's `agents`, `send`,
+`wait` and `read` commands.
+
+`send` types the message into the other agent's prompt and presses Enter.
+The message opens with who sent it and how to reply, and the receiver
+answers with `send` in the same way.
+
+The receiving agent acts on a message with the permissions you gave it, as if
+you had typed it. Keep risky actions behind each agent's approval prompts.
+`send` never types into an agent that waits for your approval. It also waits
+while you type in the target's pane.
+
 ## Options
 
 Set options above the line that runs TPM (`run '~/.tmux/plugins/tpm/tpm'`). The
@@ -206,6 +226,10 @@ alias tmux-orchestrator="$(tmux show-options -gv @tmux-orchestrator-reporter)"
 | `gc`                                     | Remove agents of panes whose process exited (`remain-on-exit`).                        |
 | `cleanup`                                | Remove all agent options and hooks from the running server.                            |
 | `install opencode`, `uninstall opencode` | Link or unlink the OpenCode adapter by hand.                                           |
+| `agents`                                 | List the agents and their addresses (`%7`, or `%7:2` for an OpenCode tab).             |
+| `send ADDRESS [TEXT]`                    | Type a message into an agent; TEXT or stdin. `--wait` also waits for its turn to end.  |
+| `wait ADDRESS`                           | Wait until the agent stops working; exits 3 after `--timeout` (100 s).                 |
+| `read ADDRESS`                           | Print the last `--lines` (80) lines of the agent's pane.                               |
 
 Example bindings:
 
@@ -271,8 +295,9 @@ One row per pane shows the Codex thread.
 | `Interrupt`                                      | `idle`            |
 | `SessionEnd`                                     | Remove the row    |
 
-Codex rows have no sidebar rename action. Codex sends `SessionStart` with the
-first prompt, so a new or resumed thread gets its row when it receives one.
+Codex rows have no sidebar rename action. Codex sends `SessionStart` only with
+the first prompt, so the plugin adds an `idle` row when Codex sets its terminal
+title at launch, and the thread takes the row over with its first prompt.
 Model failures have no matching hook in this adapter.
 
 ### OpenCode events
@@ -371,6 +396,13 @@ test. The Claude test needs the checkout to be a folder Claude already trusts.
   something. An OpenCode agent on a background tab stays `done` until its tab
   becomes active.
 - Notifications omit location, so two agents with the same name are ambiguous.
+- An agent cannot tell an agent message from your own typing apart from its
+  wording, and text left in a prompt mixes with a message typed into it
+  (SPEC.md D21).
+- Agent messaging relies on Claude Code and Codex exporting their session ID
+  to tool commands and submitting a bracketed paste on Enter. Both are
+  undocumented; a message from an agent that no longer exports its ID arrives
+  without a reply address.
 - A Claude Code background session is tracked only while a pane shows it with
   `claude attach`, and only on the default tmux server.
 - A long `? keys` panel hides the agent list until you close it.
