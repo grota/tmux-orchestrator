@@ -316,8 +316,9 @@ system temporary directory).
 - Viewing a `done` agent clears it to `idle`; its time keeps running unless
   `@tmux-orchestrator-time-on-view` is `reset`.
 - When rows do not fit, the list keeps the focused agent visible.
-- The plugin rebinds `MouseDown1Status` and `DoubleClick1Status`, replacing any
-  bindings of yours for them.
+- The plugin rebinds `MouseDown1SideStatus` and `DoubleClick1SideStatus`,
+  replacing any bindings of yours for them. The status line's own mouse
+  bindings are left alone.
 - The sidebar's on/off state is kept in `@tmux-orchestrator-enabled`, so a
   reload does not bring back a hidden sidebar.
 - The adapters find the reporter through the global option

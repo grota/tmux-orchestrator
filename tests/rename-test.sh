@@ -61,9 +61,9 @@ PO=$(tmux -L "$S" display -p -t alpha:0.1 '#{pane_id}')
 
 # The double click renames a session row with tmux's own prompt and an agent
 # row through the reporter; the keys panel leaves it out.
-KEYS=$(tmux -L "$S" list-keys -T root DoubleClick1Status)
+KEYS=$(tmux -L "$S" list-keys -T root DoubleClick1SideStatus)
 [[ $KEYS == *'rename-session'* && $KEYS == *'rename-prompt #{mouse_status_range} #{client_name}'* ]] || fail "double click binding: $KEYS"
-[[ $("$BIN" select keys; tmux -L "$S" show-options -gv @tmux-orchestrator-keys-list) != *DoubleClick1Status* ]] || fail 'keys panel lists the double click'
+[[ $("$BIN" select keys; tmux -L "$S" show-options -gv @tmux-orchestrator-keys-list) != *DoubleClick1SideStatus* ]] || fail 'keys panel lists the double click'
 "$BIN" select keys
 
 # A Claude agent is renamed in Claude, and the sidebar follows once the

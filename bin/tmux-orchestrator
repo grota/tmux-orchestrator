@@ -1474,7 +1474,7 @@ rename_prompt() {
 keys_list() {
 	local table key cmd sub
 	while IFS='|' read -r table key cmd; do
-		[[ $table == root && ( $key == MouseDown1Status || $key == DoubleClick1Status ) ]] && continue
+		[[ $table == root && ( $key == MouseDown1SideStatus || $key == DoubleClick1SideStatus ) ]] && continue
 		case "$cmd" in
 		*'#{@tmux-orchestrator-reporter}'*) sub=${cmd#*'#{@tmux-orchestrator-reporter}'} ;;
 		*bin/tmux-orchestrator*) sub=${cmd#*bin/tmux-orchestrator} ;;

@@ -60,6 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Clicking and double-clicking sidebar rows works with tmux builds that report side status clicks as `SideStatus` keys.
+- The plugin no longer rebinds the status line's `MouseDown1Status` and `DoubleClick1Status`.
+
 - A Claude Code agent that watches an artifact no longer shows the watch as a background task.
 - A Claude Code agent's background task count drops when a task ends, not at the end of the turn.
 - Parallel reports for one pane no longer lose an update when the pane lock is released between two attempts to take it.

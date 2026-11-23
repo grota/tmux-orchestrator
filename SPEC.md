@@ -938,7 +938,12 @@ The sidebar SHALL use a distinct icon and color for each state: `working` yellow
 
 ### Mouse navigation
 
-The sidebar SHALL switch the clicking client to the selected session when a session row is clicked, and to the selected agent's session, window, and pane when an agent row is clicked. Clicking an OpenCode agent row SHALL also focus that agent's tab.
+The sidebar SHALL switch the clicking client to the selected session when a session row is clicked, and to the selected agent's session, window, and pane when an agent row is clicked. Clicking an OpenCode agent row SHALL also focus that agent's tab. The sidebar's mouse bindings SHALL use tmux's side status keys (`MouseDown1SideStatus`, `DoubleClick1SideStatus`) and MUST NOT rebind the status line's `MouseDown1Status` or `DoubleClick1Status` (D20).
+
+#### Scenario: Status line clicks keep their bindings
+
+- **WHEN** the plugin loads
+- **THEN** `MouseDown1Status` keeps tmux's default binding and `DoubleClick1Status` stays unbound
 
 #### Scenario: Session row click
 
@@ -1957,3 +1962,15 @@ The shared Codex daemon runs hooks outside the terminal client's controlling ter
 - Codex 0.171 sends `SessionStart` with the first prompt of a new or resumed thread, so the row appears then.
 - A daemon hook uses the default tmux server or the daemon's configured `TMUX_SOCKET`.
 - One watcher per tracked Codex pane, identified by a token in `@agent_codex_watch`, checks for the terminal client to exit and refreshes its name from the local session index using the full thread ID. The daemon can continue to hold the thread after the sidebar removes the row.
+
+### D20. Sidebar clicks are bound on the side status keys
+
+tmux reports a mouse event in the side status line with the `SideStatus` location suffix (`MouseDown1SideStatus`, `DoubleClick1SideStatus`), never with the status line's `Status` suffix. tmux added these key names on 2026-10-27, in commit 2e04a3fa "Separate side status keys from status line". Bindings on the `Status` keys no longer fired for the sidebar, so only tmux's default session switch kept working. The plugin binds the sidebar's clicks on the `SideStatus` keys and leaves the status line's bindings to tmux and the user.
+
+**Considered options**
+
+- **Bind both the `Status` and the `SideStatus` keys.** Rejected: the status line has no agent rows, and rebinding its keys would replace the user's own bindings for nothing.
+
+**Consequences**
+
+- `tests/mouse-test.sh` sends real mouse input to a client, so tmux itself names the key; binding checks with `list-keys` alone cannot catch a renamed key.

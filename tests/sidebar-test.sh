@@ -107,7 +107,7 @@ tmux -L "$S" kill-pane -t "$PO"
 
 # Session rows keep the default switch-client; agent rows carry their pane ID
 # in a user range because tmux's "=" target resolves to the active pane.
-KEYS=$(tmux -L "$S" list-keys -T root MouseDown1Status)
+KEYS=$(tmux -L "$S" list-keys -T root MouseDown1SideStatus)
 FMT=$(tmux -L "$S" show-options -gv side-status-format)
 [[ $KEYS == *'switch-client -t='* ]] || fail 'missing default switch-client'
 [[ $KEYS == *'select #{mouse_status_range} #{client_name}'* ]] || fail 'missing pane selection'
@@ -358,7 +358,7 @@ PANEL=$(tmux -L "$S" display -p "$FMT")
 for line in 'prefix O  toggle' 'prefix N  notify pause' 'prefix M  reconcile ##{pane_id}'; do
 	[[ $PANEL == *"$line"* ]] || fail "keys panel lacks [$line]"
 done
-[[ $PANEL != *'not ours'* && $PANEL != *MouseDown1Status* ]] || fail 'keys panel lists foreign or fixed bindings'
+[[ $PANEL != *'not ours'* && $PANEL != *MouseDown1SideStatus* ]] || fail 'keys panel lists foreign or fixed bindings'
 "$BIN" select keys
 tmux -L "$S" display -p "$FMT" | grep -Fq 'prefix N' && fail 'keys panel did not close'
 # A binding added after load appears on the next open.

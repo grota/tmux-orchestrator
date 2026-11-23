@@ -186,18 +186,20 @@ done
 "${TMUX_CMD[@]}" set-option -g @tmux-orchestrator-info-lines "$info_lines"
 "${TMUX_CMD[@]}" set-option -g side-status-format "$(expand_icons "$format")"
 
-# Session rows keep the default switch-client -t= behaviour.  Agent rows use a
-# user range that carries the pane ID: tmux's special mouse target (=) resolves
-# to the active pane for side-status pane ranges, so it cannot select the row.
-# The reporter receives the ID and executes select-window/select-pane itself.
-CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{==:#{mouse_status_range},window}' 'switch-client -t= ; select-window -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session},#{!=:#{mouse_status_range},window}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range} #{client_name}\"'"
-"${TMUX_CMD[@]}" bind-key -n MouseDown1Status "$CLICK"
+# Clicks in the side status line arrive as SideStatus keys, never as the
+# status line's Status keys, which keep their own bindings.  Session rows keep
+# the default switch-client -t= behaviour.  Agent rows use a user range that
+# carries the pane ID: tmux's special mouse target (=) resolves to the active
+# pane for side-status pane ranges, so it cannot select the row.  The reporter
+# receives the ID and executes select-window/select-pane itself.
+CLICK="if -F '#{==:#{mouse_status_range},session}' 'switch-client -t=' ; if -F '#{&&:#{mouse_status_range},#{!=:#{mouse_status_range},session}}' 'run-shell -b \"$RUN_SELECT #{mouse_status_range} #{client_name}\"'"
+"${TMUX_CMD[@]}" bind-key -n MouseDown1SideStatus "$CLICK"
 
 # A double click renames: the first click has already switched to the session,
 # so a session row renames the current session, like prefix $.  An agent row
 # asks the reporter, which renames the agent in Claude Code or OpenCode.
 DOUBLE_CLICK="if -F '#{==:#{mouse_status_range},session}' { command-prompt -I '#S' -p 'rename session:' { rename-session -- \"%%%\" } } ; if -F '#{m/r:^%[0-9]+:[0-9]+\$,#{mouse_status_range}}' 'run-shell -b \"$RUN_RENAME #{mouse_status_range} #{client_name}\"'"
-"${TMUX_CMD[@]}" bind-key -n DoubleClick1Status "$DOUBLE_CLICK"
+"${TMUX_CMD[@]}" bind-key -n DoubleClick1SideStatus "$DOUBLE_CLICK"
 
 # The toggle key never overwrites a user binding.  Our toggle bindings are
 # recognised by the reporter's file name, so one left by a moved checkout or
